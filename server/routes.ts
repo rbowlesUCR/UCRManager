@@ -1633,6 +1633,135 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== TENANT POWERSHELL CREDENTIALS API (ADMIN ONLY) =====
+
+  // Get all PowerShell credentials for a tenant (without passwords)
+  app.get("/api/admin/tenant/:tenantId/powershell-credentials", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const credentials = await storage.getTenantPowershellCredentials(tenantId);
+
+      // Remove encrypted passwords from response for security
+      const sanitized = credentials.map(cred => ({
+        id: cred.id,
+        tenantId: cred.tenantId,
+        username: cred.username,
+        description: cred.description,
+        isActive: cred.isActive,
+        createdAt: cred.createdAt,
+        updatedAt: cred.updatedAt,
+      }));
+
+      res.json(sanitized);
+    } catch (error) {
+      console.error("Error fetching PowerShell credentials:", error);
+      res.status(500).json({ error: "Failed to fetch PowerShell credentials" });
+    }
+  });
+
+  // Create new PowerShell credentials for a tenant
+  app.post("/api/admin/tenant/:tenantId/powershell-credentials", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { username, password, description } = req.body;
+
+      if (!username || !password) {
+        return res.status(400).json({ error: "Username and password are required" });
+      }
+
+      // Encrypt the password before storing
+      const encryptedPassword = encrypt(password);
+
+      const credential = await storage.createTenantPowershellCredentials({
+        tenantId,
+        username,
+        encryptedPassword,
+        description,
+        isActive: true,
+      });
+
+      // Return without the encrypted password
+      res.json({
+        id: credential.id,
+        tenantId: credential.tenantId,
+        username: credential.username,
+        description: credential.description,
+        isActive: credential.isActive,
+        createdAt: credential.createdAt,
+      });
+    } catch (error) {
+      console.error("Error creating PowerShell credentials:", error);
+      res.status(500).json({ error: "Failed to create PowerShell credentials" });
+    }
+  });
+
+  // Update PowerShell credentials for a tenant
+  app.put("/api/admin/tenant/:tenantId/powershell-credentials/:credId", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId, credId } = req.params;
+      const { username, password, description, isActive } = req.body;
+
+      const updates: any = {};
+      if (username !== undefined) updates.username = username;
+      if (password !== undefined) updates.encryptedPassword = encrypt(password);
+      if (description !== undefined) updates.description = description;
+      if (isActive !== undefined) updates.isActive = isActive;
+
+      const credential = await storage.updateTenantPowershellCredentials(credId, updates);
+
+      // Return without the encrypted password
+      res.json({
+        id: credential.id,
+        tenantId: credential.tenantId,
+        username: credential.username,
+        description: credential.description,
+        isActive: credential.isActive,
+        updatedAt: credential.updatedAt,
+      });
+    } catch (error) {
+      console.error("Error updating PowerShell credentials:", error);
+      res.status(500).json({ error: "Failed to update PowerShell credentials" });
+    }
+  });
+
+  // Delete PowerShell credentials for a tenant
+  app.delete("/api/admin/tenant/:tenantId/powershell-credentials/:credId", requireAdminAuth, async (req, res) => {
+    try {
+      const { credId } = req.params;
+      await storage.deleteTenantPowershellCredentials(credId);
+      res.json({ success: true, message: "PowerShell credentials deleted" });
+    } catch (error) {
+      console.error("Error deleting PowerShell credentials:", error);
+      res.status(500).json({ error: "Failed to delete PowerShell credentials" });
+    }
+  });
+
+  // ===== OPERATOR POWERSHELL SESSION API =====
+
+  // Get PowerShell credentials for operator use (with encrypted password for WebSocket)
+  app.get("/api/tenant/:tenantId/powershell-credentials", requireOperatorAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const credentials = await storage.getTenantPowershellCredentials(tenantId);
+
+      // Find active credentials
+      const active = credentials.find(cred => cred.isActive);
+      if (!active) {
+        return res.status(404).json({ error: "No active PowerShell credentials found for this tenant" });
+      }
+
+      // Return with encrypted password (operator needs this for WebSocket authentication)
+      // The operator still can't see the actual password, only the encrypted version
+      res.json({
+        username: active.username,
+        encryptedPassword: active.encryptedPassword,
+      });
+    } catch (error) {
+      console.error("Error fetching PowerShell credentials:", error);
+      res.status(500).json({ error: "Failed to fetch PowerShell credentials" });
+    }
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;

@@ -3,6 +3,7 @@ import https from "https";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { getHttpsOptions } from "./https-config";
+import { setupWebSocketServer } from "./websocket";
 
 const app = express();
 
@@ -87,6 +88,10 @@ app.use((req, res, next) => {
 
   // Use HTTPS server if available, otherwise use HTTP server
   const serverToListen = httpsServer || server;
+
+  // Setup WebSocket server for PowerShell sessions
+  setupWebSocketServer(serverToListen);
+  log('WebSocket server initialized for PowerShell sessions');
 
   serverToListen.listen(port, "0.0.0.0", () => {
     const protocol = httpsServer ? 'HTTPS' : 'HTTP';

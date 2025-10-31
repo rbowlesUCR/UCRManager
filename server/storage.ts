@@ -66,10 +66,12 @@ export interface IStorage {
   getOperatorConfig(): Promise<OperatorConfig | undefined>;
   updateOperatorConfig(updates: Partial<InsertOperatorConfig>): Promise<OperatorConfig | undefined>;
 
-  // Tenant PowerShell credentials (per-tenant, optional)
-  getTenantPowershellCredentials(tenantId: string): Promise<TenantPowershellCredentials | undefined>;
-  createOrUpdateTenantPowershellCredentials(credentials: InsertTenantPowershellCredentials): Promise<TenantPowershellCredentials>;
-  deleteTenantPowershellCredentials(tenantId: string): Promise<boolean>;
+  // Tenant PowerShell credentials (per-tenant, multiple credentials supported)
+  getTenantPowershellCredentials(tenantId: string): Promise<TenantPowershellCredentials[]>;
+  getTenantPowershellCredentialById(id: string): Promise<TenantPowershellCredentials | undefined>;
+  createTenantPowershellCredentials(credentials: InsertTenantPowershellCredentials): Promise<TenantPowershellCredentials>;
+  updateTenantPowershellCredentials(id: string, updates: Partial<InsertTenantPowershellCredentials>): Promise<TenantPowershellCredentials>;
+  deleteTenantPowershellCredentials(id: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -270,50 +272,51 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Tenant PowerShell credentials
-  async getTenantPowershellCredentials(tenantId: string): Promise<TenantPowershellCredentials | undefined> {
-    const [credentials] = await db
+  // Get all PowerShell credentials for a tenant
+  async getTenantPowershellCredentials(tenantId: string): Promise<TenantPowershellCredentials[]> {
+    const credentials = await db
       .select()
       .from(tenantPowershellCredentials)
       .where(eq(tenantPowershellCredentials.tenantId, tenantId))
+      .orderBy(desc(tenantPowershellCredentials.createdAt));
+    return credentials;
+  }
+
+  // Get a specific PowerShell credential by ID
+  async getTenantPowershellCredentialById(id: string): Promise<TenantPowershellCredentials | undefined> {
+    const [credential] = await db
+      .select()
+      .from(tenantPowershellCredentials)
+      .where(eq(tenantPowershellCredentials.id, id))
       .limit(1);
-    return credentials || undefined;
+    return credential || undefined;
   }
 
-  async createOrUpdateTenantPowershellCredentials(insertCredentials: InsertTenantPowershellCredentials): Promise<TenantPowershellCredentials> {
-    // Check if credentials already exist for this tenant
-    const existing = await this.getTenantPowershellCredentials(insertCredentials.tenantId);
-    
-    if (existing) {
-      // Update existing credentials
-      const [updated] = await db
-        .update(tenantPowershellCredentials)
-        .set({ ...insertCredentials, updatedAt: new Date() })
-        .where(eq(tenantPowershellCredentials.id, existing.id))
-        .returning();
-      return updated;
-    } else {
-      // Create new credentials
-      const [created] = await db
-        .insert(tenantPowershellCredentials)
-        .values(insertCredentials)
-        .returning();
-      return created;
-    }
+  // Create new PowerShell credentials
+  async createTenantPowershellCredentials(insertCredentials: InsertTenantPowershellCredentials): Promise<TenantPowershellCredentials> {
+    const [created] = await db
+      .insert(tenantPowershellCredentials)
+      .values(insertCredentials)
+      .returning();
+    return created;
   }
 
-  async deleteTenantPowershellCredentials(tenantId: string): Promise<boolean> {
-    const existing = await this.getTenantPowershellCredentials(tenantId);
-    
-    if (!existing) {
-      return false;
-    }
+  // Update PowerShell credentials
+  async updateTenantPowershellCredentials(id: string, updates: Partial<InsertTenantPowershellCredentials>): Promise<TenantPowershellCredentials> {
+    const [updated] = await db
+      .update(tenantPowershellCredentials)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(tenantPowershellCredentials.id, id))
+      .returning();
+    return updated;
+  }
 
-    // Hard delete the credentials
+  // Delete PowerShell credentials by ID
+  async deleteTenantPowershellCredentials(id: string): Promise<boolean> {
     const result = await db
       .delete(tenantPowershellCredentials)
-      .where(eq(tenantPowershellCredentials.id, existing.id))
+      .where(eq(tenantPowershellCredentials.id, id))
       .returning();
-    
     return result.length > 0;
   }
 }
