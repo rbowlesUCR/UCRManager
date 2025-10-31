@@ -1,0 +1,11 @@
+I’d like to create an application that uses a simple interface to assign the line uri (telephone number) and routing policy to a user.
+
+This interface needs the following authentication.  First it would prompt the operator to authenticate their credentials, this will always be from a single Azure active directory tenant.  Then the application will use an app registration, which it may need to create the first time, which would require admin permissions to that tenant initially to setup the app registration.  The app registration should use the very minimum of permissions in Azure Active Directory to perform these changes.
+The application will need to support multiple client tenants/app registrations.  The app should also have a database that will track changes with operator user name, tenant changes are made to, date, time and change made.  This information should be available in a admin menu that is only accessible via an admin username and password.
+
+The flow of the app would be as follows:
+
+Users logs into the app and are verified as a user in the operator tenant.  Then the user selects an existing customer tenant to make the teams change in, or inputs a new customer tenant to add the app registration to so that it can make the changes.  Once the user is connected to that customer tenant the application will query the list of all teams voice enabled users for that customer tenant and will allow the operator to select the user in a drop down or by typing the username (with autocomplete).  Once the user is selected the operator wants to change, the application will display any existing teams voice information present.
+The operator will then be able to enter the teams voice number they want to assign and select from a list of voice routing policies available for assignment (this will need to be queried as well).  At that point they can save or cancel the changes.
+
+As a reminder this application needs to use the bare minimum of permissions in the customers tenant and should provide a wizard for adding the app registration and list the permissions it requires and why they are needed.
