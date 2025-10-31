@@ -1,6 +1,8 @@
 import express, { type Request, Response, NextFunction } from "express";
+import https from "https";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { getHttpsOptions } from "./https-config";
 
 const app = express();
 
@@ -71,11 +73,23 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || '5000', 10);
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
+
+  // Try to use HTTPS if certificate is available
+  let httpsServer: https.Server | null = null;
+  try {
+    const httpsOptions = await getHttpsOptions();
+    httpsServer = https.createServer(httpsOptions, app);
+    log('HTTPS certificate loaded successfully');
+  } catch (error) {
+    log(`HTTPS not available: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    log('Running in HTTP mode');
+  }
+
+  // Use HTTPS server if available, otherwise use HTTP server
+  const serverToListen = httpsServer || server;
+
+  serverToListen.listen(port, "0.0.0.0", () => {
+    const protocol = httpsServer ? 'HTTPS' : 'HTTP';
+    log(`serving on port ${port} (${protocol})`);
   });
 })();

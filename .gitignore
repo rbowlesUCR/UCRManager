@@ -8,3 +8,7 @@ vite.config.ts.*
 *.cjs
 .env
 .env.local
+certificates/
+*.pfx
+*.key
+*.pem
