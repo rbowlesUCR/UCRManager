@@ -26,10 +26,13 @@ import {
   assignPhoneAndPolicyCert,
   getTeamsUserCert,
   generateTeamsCertificate,
+  getTeamsPoliciesCert,
+  grantTeamsPolicyCert,
   type PowerShellCertificateCredentials,
   type PowerShellCredentials,
 } from "./powershell";
 import { powershellSessionManager } from "./powershell-session";
+import { PolicyType, policyTypeConfig } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Middleware
@@ -1879,6 +1882,152 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error getting policies via PowerShell:", error);
       res.status(500).json({ error: "Failed to get voice routing policies via PowerShell" });
+    }
+  });
+
+  // Generic endpoint: Get policies for any policy type (operator auth required)
+  app.post("/api/teams/policies/:type", requireOperatorAuth, async (req, res) => {
+    try {
+      const { type } = req.params;
+      const { tenantId } = req.body;
+
+      // Validate policy type
+      if (!type || !(type in policyTypeConfig)) {
+        return res.status(400).json({
+          error: "Invalid policy type",
+          validTypes: Object.keys(policyTypeConfig)
+        });
+      }
+
+      if (!tenantId) {
+        return res.status(400).json({ error: "Missing required field: tenantId" });
+      }
+
+      const policyType = type as PolicyType;
+
+      // Get customer tenant
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      // Get tenant-specific PowerShell certificate credentials
+      const credentialsArray = await storage.getTenantPowershellCredentials(tenantId);
+      const psCredentials = credentialsArray.find(cred => cred.isActive);
+
+      if (!psCredentials) {
+        return res.status(404).json({ error: "PowerShell credentials not configured for this tenant. Please contact administrator." });
+      }
+
+      // Build certificate credentials
+      const certCredentials: PowerShellCertificateCredentials = {
+        tenantId: tenant.tenantId,
+        appId: psCredentials.appId,
+        certificateThumbprint: psCredentials.certificateThumbprint,
+      };
+
+      // Execute PowerShell command to get policies
+      const result = await getTeamsPoliciesCert(certCredentials, policyType);
+
+      if (result.success) {
+        try {
+          // Try to parse JSON output from PowerShell
+          const rawPolicies = JSON.parse(result.output);
+
+          // Transform PowerShell format to frontend format
+          const policies = (Array.isArray(rawPolicies) ? rawPolicies : [rawPolicies]).map((p: any) => ({
+            id: p.Identity || "",
+            name: p.Identity ? p.Identity.replace(/^Tag:/i, "") : "",
+            description: p.Description || "",
+            type: policyType
+          }));
+
+          res.json({
+            success: true,
+            policies,
+            policyType,
+          });
+        } catch (parseError) {
+          // If JSON parsing fails, return raw output
+          res.json({
+            success: true,
+            rawOutput: result.output,
+            policyType,
+          });
+        }
+      } else {
+        res.status(500).json({
+          success: false,
+          error: result.error || `Failed to get ${policyTypeConfig[policyType].displayName} via PowerShell`,
+          output: result.output,
+        });
+      }
+    } catch (error) {
+      console.error("Error getting policies via PowerShell:", error);
+      res.status(500).json({ error: "Failed to get policies via PowerShell" });
+    }
+  });
+
+  // Generic endpoint: Assign any policy type to a user (operator auth required)
+  app.post("/api/teams/assign-policy", requireOperatorAuth, async (req, res) => {
+    try {
+      const { tenantId, userPrincipalName, policyType, policyName } = req.body;
+
+      // Validate required fields
+      if (!tenantId || !userPrincipalName || !policyType || !policyName) {
+        return res.status(400).json({
+          error: "Missing required fields: tenantId, userPrincipalName, policyType, policyName"
+        });
+      }
+
+      // Validate policy type
+      if (!(policyType in policyTypeConfig)) {
+        return res.status(400).json({
+          error: "Invalid policy type",
+          validTypes: Object.keys(policyTypeConfig)
+        });
+      }
+
+      // Get customer tenant
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      // Get tenant-specific PowerShell certificate credentials
+      const credentialsArray = await storage.getTenantPowershellCredentials(tenantId);
+      const psCredentials = credentialsArray.find(cred => cred.isActive);
+
+      if (!psCredentials) {
+        return res.status(404).json({ error: "PowerShell credentials not configured for this tenant. Please contact administrator." });
+      }
+
+      // Build certificate credentials
+      const certCredentials: PowerShellCertificateCredentials = {
+        tenantId: tenant.tenantId,
+        appId: psCredentials.appId,
+        certificateThumbprint: psCredentials.certificateThumbprint,
+      };
+
+      // Execute PowerShell command to grant policy
+      const result = await grantTeamsPolicyCert(certCredentials, userPrincipalName, policyType as PolicyType, policyName);
+
+      if (result.success) {
+        res.json({
+          success: true,
+          message: `Successfully assigned ${policyTypeConfig[policyType as PolicyType].displayName} '${policyName}' to ${userPrincipalName}`,
+          output: result.output,
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: result.error || `Failed to assign ${policyTypeConfig[policyType as PolicyType].displayName}`,
+          output: result.output,
+        });
+      }
+    } catch (error) {
+      console.error("Error assigning policy via PowerShell:", error);
+      res.status(500).json({ error: "Failed to assign policy via PowerShell" });
     }
   });
 
