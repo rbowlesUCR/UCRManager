@@ -1378,6 +1378,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== PHONE NUMBER LIFECYCLE MANAGEMENT ROUTES =====
+
+  // Reserve a phone number
+  app.post("/api/numbers/:id/reserve", requireOperatorAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { reservedBy } = req.body;
+      const operatorEmail = req.session.user?.email || "unknown";
+
+      if (!reservedBy) {
+        return res.status(400).json({ error: "reservedBy field is required" });
+      }
+
+      const { lifecycleManager } = await import("./lifecycle-manager");
+      const success = await lifecycleManager.reserveNumber(id, reservedBy, operatorEmail);
+
+      if (success) {
+        res.json({ success: true, message: "Number reserved successfully" });
+      } else {
+        res.status(400).json({ error: "Failed to reserve number" });
+      }
+    } catch (error) {
+      console.error("Error reserving number:", error);
+      res.status(500).json({ error: "Failed to reserve number" });
+    }
+  });
+
+  // Release a reserved number (moves to aging)
+  app.post("/api/numbers/:id/release", requireOperatorAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const operatorEmail = req.session.user?.email || "unknown";
+
+      const { lifecycleManager } = await import("./lifecycle-manager");
+      const success = await lifecycleManager.releaseReservedNumber(id, operatorEmail);
+
+      if (success) {
+        res.json({ success: true, message: "Number released to aging status" });
+      } else {
+        res.status(400).json({ error: "Failed to release number" });
+      }
+    } catch (error) {
+      console.error("Error releasing number:", error);
+      res.status(500).json({ error: "Failed to release number" });
+    }
+  });
+
+  // Manually trigger lifecycle check
+  app.post("/api/numbers/lifecycle/run", requireOperatorAuth, async (req, res) => {
+    try {
+      const { lifecycleManager } = await import("./lifecycle-manager");
+      const result = await lifecycleManager.runLifecycleCheck();
+      res.json(result);
+    } catch (error) {
+      console.error("Error running lifecycle check:", error);
+      res.status(500).json({ error: "Failed to run lifecycle check" });
+    }
+  });
+
+  // Get lifecycle statistics
+  app.get("/api/numbers/lifecycle/stats", requireOperatorAuth, async (req, res) => {
+    try {
+      const { lifecycleManager } = await import("./lifecycle-manager");
+      const stats = await lifecycleManager.getLifecycleStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching lifecycle stats:", error);
+      res.status(500).json({ error: "Failed to fetch lifecycle stats" });
+    }
+  });
+
   // ===== TEAMS VOICE MANAGEMENT ROUTES =====
 
   // Get Teams voice-enabled users for a tenant
