@@ -183,3 +183,106 @@ export interface OperatorSession {
   role?: "admin" | "user"; // Role from operator_users table
   isLocalAdmin?: boolean; // True for admin_users table login
 }
+
+// Policy Types - Defines all supported Microsoft Teams policy categories
+export type PolicyType =
+  | "voiceRouting"
+  | "audioConferencing"
+  | "callHold"
+  | "callerId"
+  | "calling"
+  | "emergencyCallRouting"
+  | "emergencyCalling"
+  | "meeting"
+  | "voiceApplications"
+  | "voicemail";
+
+// Generic Teams Policy interface (backward compatible with VoiceRoutingPolicy)
+export interface TeamsPolicy {
+  id: string;
+  name: string;
+  description?: string;
+  type?: PolicyType; // Optional for backward compatibility
+}
+
+// Policy Configuration - Maps policy types to PowerShell cmdlets
+export interface PolicyConfig {
+  displayName: string; // User-friendly name for UI
+  powerShellCmdGet: string; // PowerShell Get-* cmdlet
+  powerShellCmdGrant: string; // PowerShell Grant-* cmdlet
+  userPropertyName: string; // Property name on CsOnlineUser object
+  supportsDescription: boolean; // Whether this policy type has descriptions
+}
+
+export const policyTypeConfig: Record<PolicyType, PolicyConfig> = {
+  voiceRouting: {
+    displayName: "Voice Routing Policy",
+    powerShellCmdGet: "Get-CsOnlineVoiceRoutingPolicy",
+    powerShellCmdGrant: "Grant-CsOnlineVoiceRoutingPolicy",
+    userPropertyName: "OnlineVoiceRoutingPolicy",
+    supportsDescription: true,
+  },
+  audioConferencing: {
+    displayName: "Audio Conferencing Policy",
+    powerShellCmdGet: "Get-CsTeamsAudioConferencingPolicy",
+    powerShellCmdGrant: "Grant-CsTeamsAudioConferencingPolicy",
+    userPropertyName: "TeamsAudioConferencingPolicy",
+    supportsDescription: true,
+  },
+  callHold: {
+    displayName: "Call Hold Policy",
+    powerShellCmdGet: "Get-CsTeamsCallHoldPolicy",
+    powerShellCmdGrant: "Grant-CsTeamsCallHoldPolicy",
+    userPropertyName: "TeamsCallHoldPolicy",
+    supportsDescription: false,
+  },
+  callerId: {
+    displayName: "Caller ID Policy",
+    powerShellCmdGet: "Get-CsCallingLineIdentity",
+    powerShellCmdGrant: "Grant-CsCallingLineIdentity",
+    userPropertyName: "CallingLineIdentity",
+    supportsDescription: true,
+  },
+  calling: {
+    displayName: "Calling Policy",
+    powerShellCmdGet: "Get-CsTeamsCallingPolicy",
+    powerShellCmdGrant: "Grant-CsTeamsCallingPolicy",
+    userPropertyName: "TeamsCallingPolicy",
+    supportsDescription: true,
+  },
+  emergencyCallRouting: {
+    displayName: "Emergency Call Routing Policy",
+    powerShellCmdGet: "Get-CsTeamsEmergencyCallRoutingPolicy",
+    powerShellCmdGrant: "Grant-CsTeamsEmergencyCallRoutingPolicy",
+    userPropertyName: "TeamsEmergencyCallRoutingPolicy",
+    supportsDescription: true,
+  },
+  emergencyCalling: {
+    displayName: "Emergency Calling Policy",
+    powerShellCmdGet: "Get-CsTeamsEmergencyCallingPolicy",
+    powerShellCmdGrant: "Grant-CsTeamsEmergencyCallingPolicy",
+    userPropertyName: "TeamsEmergencyCallingPolicy",
+    supportsDescription: true,
+  },
+  meeting: {
+    displayName: "Meeting Policy",
+    powerShellCmdGet: "Get-CsTeamsMeetingPolicy",
+    powerShellCmdGrant: "Grant-CsTeamsMeetingPolicy",
+    userPropertyName: "TeamsMeetingPolicy",
+    supportsDescription: true,
+  },
+  voiceApplications: {
+    displayName: "Voice Applications Policy",
+    powerShellCmdGet: "Get-CsTeamsVoiceApplicationsPolicy",
+    powerShellCmdGrant: "Grant-CsTeamsVoiceApplicationsPolicy",
+    userPropertyName: "TeamsVoiceApplicationsPolicy",
+    supportsDescription: false,
+  },
+  voicemail: {
+    displayName: "Voicemail Policy",
+    powerShellCmdGet: "Get-CsOnlineVoicemailPolicy",
+    powerShellCmdGrant: "Grant-CsOnlineVoicemailPolicy",
+    userPropertyName: "OnlineVoicemailPolicy",
+    supportsDescription: true,
+  }
+};
