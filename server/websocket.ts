@@ -182,18 +182,44 @@ async function handleCreateSession(
   try {
     const { tenantId, credentials } = data;
 
-    // Create the session with certificate-based authentication
-    const sessionId = await powershellSessionManager.createSessionWithCertificate(
-      tenantId,
-      client.operatorEmail,
-      {
-        tenantId: credentials.tenantId || '',
-        appId: credentials.appId || '',
-        certificateThumbprint: credentials.certificateThumbprint || ''
+    console.log('[WebSocket] Creating session with authType:', credentials.authType);
+
+    let sessionId: string;
+
+    // Choose authentication method based on authType
+    if (credentials.authType === 'user') {
+      // User authentication with MFA
+      console.log('[WebSocket] Using user authentication (MFA required)');
+
+      if (!credentials.username || !credentials.encryptedPassword) {
+        throw new Error('Username and password are required for user authentication');
       }
-    );
+
+      sessionId = await powershellSessionManager.createSession(
+        tenantId,
+        client.operatorEmail,
+        {
+          username: credentials.username,
+          encryptedPassword: credentials.encryptedPassword
+        }
+      );
+    } else {
+      // Certificate-based authentication (no MFA)
+      console.log('[WebSocket] Using certificate authentication');
+
+      sessionId = await powershellSessionManager.createSessionWithCertificate(
+        tenantId,
+        client.operatorEmail,
+        {
+          tenantId: credentials.tenantId || '',
+          appId: credentials.appId || '',
+          certificateThumbprint: credentials.certificateThumbprint || ''
+        }
+      );
+    }
 
     client.sessionId = sessionId;
+    console.log('[WebSocket] Session created:', sessionId);
 
     // Get the session and setup event listeners
     const session = powershellSessionManager.getSession(sessionId);

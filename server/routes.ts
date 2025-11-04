@@ -2351,13 +2351,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "No active PowerShell credentials found for this tenant" });
       }
 
-      // Return certificate credentials (for WebSocket authentication)
-      res.json({
-        authType: "certificate",
-        tenantId: tenant.tenantId, // Azure AD tenant ID
-        appId: active.appId,
-        certificateThumbprint: active.certificateThumbprint,
-      });
+      console.log('[Operator Credentials] Returning authType:', active.authType || 'certificate');
+
+      // Return credentials based on auth type (for WebSocket authentication)
+      if (active.authType === 'user') {
+        // User authentication with MFA
+        res.json({
+          authType: 'user',
+          username: active.username,
+          encryptedPassword: active.encryptedPassword,
+        });
+      } else {
+        // Certificate authentication
+        res.json({
+          authType: 'certificate',
+          tenantId: tenant.tenantId, // Azure AD tenant ID
+          appId: active.appId,
+          certificateThumbprint: active.certificateThumbprint,
+        });
+      }
     } catch (error) {
       console.error("Error fetching PowerShell credentials:", error);
       res.status(500).json({ error: "Failed to fetch PowerShell credentials" });
