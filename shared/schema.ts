@@ -97,6 +97,51 @@ export const tenantPowershellCredentials = pgTable("tenant_powershell_credential
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Phone number inventory table - comprehensive DID/number management system
+// Tracks all phone numbers across customer tenants with lifecycle and assignment tracking
+export const phoneNumberInventory = pgTable("phone_number_inventory", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => customerTenants.id, { onDelete: "cascade" }),
+
+  // Phone number details
+  lineUri: text("line_uri").notNull(), // E.164 format: tel:+15551234567
+  displayName: text("display_name"), // Friendly name or current assigned user display name
+  userPrincipalName: text("user_principal_name"), // UPN of assigned user (if applicable)
+
+  // Service provider and location information
+  carrier: text("carrier"), // Service provider/carrier name
+  location: text("location"), // Physical location (e.g., "New York Office")
+  usageLocation: text("usage_location"), // ISO country code or usage region
+
+  // Teams/UC configuration
+  onlineVoiceRoutingPolicy: text("online_voice_routing_policy"), // Associated voice routing policy
+
+  // Number classification and status
+  numberType: text("number_type").notNull().default("did"), // did, extension, toll-free, mailbox
+  status: text("status").notNull().default("available"), // available, used, reserved, aging
+
+  // Lifecycle management
+  reservedBy: text("reserved_by"), // Operator email who reserved the number
+  reservedAt: timestamp("reserved_at"), // When number was reserved
+  agingUntil: timestamp("aging_until"), // When reserved/aging number becomes available
+  assignedAt: timestamp("assigned_at"), // When number was assigned to user
+
+  // Additional metadata
+  notes: text("notes"), // Free-form notes
+  tags: text("tags"), // Comma-separated tags for categorization
+  numberRange: text("number_range"), // Range identifier (e.g., "+1555123xxxx")
+
+  // External system tracking (for future integrations)
+  externalSystemId: text("external_system_id"), // ID in external PBX/UC system
+  externalSystemType: text("external_system_type"), // teams, cisco, avaya, 3cx, ribbon, etc.
+
+  // Audit fields
+  createdBy: text("created_by").notNull(), // Operator who added the number
+  lastModifiedBy: text("last_modified_by").notNull(), // Last operator to modify
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Insert schemas
 export const insertAdminUserSchema = createInsertSchema(adminUsers).omit({
   id: true,
@@ -138,6 +183,12 @@ export const insertTenantPowershellCredentialsSchema = createInsertSchema(tenant
   updatedAt: true,
 });
 
+export const insertPhoneNumberInventorySchema = createInsertSchema(phoneNumberInventory).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type AdminUser = typeof adminUsers.$inferSelect;
 export type InsertAdminUser = z.infer<typeof insertAdminUserSchema>;
@@ -159,6 +210,13 @@ export type InsertOperatorUser = z.infer<typeof insertOperatorUserSchema>;
 
 export type TenantPowershellCredentials = typeof tenantPowershellCredentials.$inferSelect;
 export type InsertTenantPowershellCredentials = z.infer<typeof insertTenantPowershellCredentialsSchema>;
+
+export type PhoneNumberInventory = typeof phoneNumberInventory.$inferSelect;
+export type InsertPhoneNumberInventory = z.infer<typeof insertPhoneNumberInventorySchema>;
+
+// Number status and type enums for type safety
+export type NumberStatus = "available" | "used" | "reserved" | "aging";
+export type NumberType = "did" | "extension" | "toll-free" | "mailbox";
 
 // Frontend-only types for Microsoft Graph API responses
 export interface TeamsUser {
