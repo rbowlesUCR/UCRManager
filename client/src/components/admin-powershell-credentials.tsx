@@ -5,16 +5,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Trash2, Plus, Edit2, Check, X, FileText, TestTube, Key, Hash, Sparkles, Download, Copy } from "lucide-react";
+import { Trash2, Plus, Edit2, Check, X, FileText, TestTube, Key, Hash, Sparkles, Download, Copy, User, Shield } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 interface PowerShellCredential {
   id: string;
   tenantId: string;
-  appId: string;
-  certificateThumbprint: string;
+  authType: 'certificate' | 'user';
+  appId?: string;
+  certificateThumbprint?: string;
+  username?: string;
+  encryptedPassword?: string;
   description?: string;
   isActive: boolean;
   createdAt: string;
@@ -39,8 +43,11 @@ export function AdminPowerShellCredentials({ tenantId, tenantName }: AdminPowerS
     filename: string;
   } | null>(null);
   const [formData, setFormData] = useState({
+    authType: "certificate" as 'certificate' | 'user',
     appId: "",
     certificateThumbprint: "",
+    username: "",
+    password: "",
     description: "",
   });
   const { toast } = useToast();
@@ -57,11 +64,12 @@ export function AdminPowerShellCredentials({ tenantId, tenantName }: AdminPowerS
       const res = await apiRequest("POST", `/api/admin/tenant/${tenantId}/powershell-credentials`, data);
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: [`/api/admin/tenant/${tenantId}/powershell-credentials`] });
-      toast({ title: "Success", description: "PowerShell certificate credentials added successfully" });
+      const authTypeLabel = variables.authType === 'certificate' ? 'certificate' : 'user';
+      toast({ title: "Success", description: `PowerShell ${authTypeLabel} credentials added successfully` });
       setIsAdding(false);
-      setFormData({ appId: "", certificateThumbprint: "", description: "" });
+      setFormData({ authType: "certificate", appId: "", certificateThumbprint: "", username: "", password: "", description: "" });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -76,9 +84,9 @@ export function AdminPowerShellCredentials({ tenantId, tenantName }: AdminPowerS
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/admin/tenant/${tenantId}/powershell-credentials`] });
-      toast({ title: "Success", description: "PowerShell certificate credentials updated successfully" });
+      toast({ title: "Success", description: "PowerShell credentials updated successfully" });
       setEditingId(null);
-      setFormData({ appId: "", certificateThumbprint: "", description: "" });
+      setFormData({ authType: "certificate", appId: "", certificateThumbprint: "", username: "", password: "", description: "" });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -127,8 +135,11 @@ export function AdminPowerShellCredentials({ tenantId, tenantName }: AdminPowerS
   const startEdit = (cred: PowerShellCredential) => {
     setEditingId(cred.id);
     setFormData({
-      appId: cred.appId,
-      certificateThumbprint: cred.certificateThumbprint,
+      authType: cred.authType,
+      appId: cred.appId || "",
+      certificateThumbprint: cred.certificateThumbprint || "",
+      username: cred.username || "",
+      password: "", // Never populate password for security
       description: cred.description || "",
     });
     setIsAdding(true);
@@ -137,7 +148,7 @@ export function AdminPowerShellCredentials({ tenantId, tenantName }: AdminPowerS
   const cancelEdit = () => {
     setEditingId(null);
     setIsAdding(false);
-    setFormData({ appId: "", certificateThumbprint: "", description: "" });
+    setFormData({ authType: "certificate", appId: "", certificateThumbprint: "", username: "", password: "", description: "" });
   };
 
   // Test connection function
@@ -247,9 +258,9 @@ export function AdminPowerShellCredentials({ tenantId, tenantName }: AdminPowerS
   return (
     <Card>
       <CardHeader>
-        <CardTitle>PowerShell Certificate Credentials for {tenantName}</CardTitle>
+        <CardTitle>PowerShell Credentials for {tenantName}</CardTitle>
         <CardDescription>
-          Configure certificate-based authentication for Microsoft Teams PowerShell operations. No user credentials or MFA required!
+          Configure certificate or user authentication for Microsoft Teams PowerShell operations.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -327,19 +338,38 @@ export function AdminPowerShellCredentials({ tenantId, tenantName }: AdminPowerS
             {credentials.map((cred) => (
               <div key={cred.id} className="flex items-center justify-between p-4 border rounded-lg">
                 <div className="flex-1">
-                  <div className="font-medium flex items-center gap-2">
-                    <Key className="h-4 w-4" />
-                    App ID: {cred.appId}
+                  <div className="font-medium flex items-center gap-2 mb-2">
+                    {cred.authType === 'certificate' ? (
+                      <Shield className="h-4 w-4 text-green-600" />
+                    ) : (
+                      <User className="h-4 w-4 text-blue-600" />
+                    )}
+                    <span className="text-xs px-2 py-1 rounded bg-slate-100 dark:bg-slate-800">
+                      {cred.authType === 'certificate' ? 'Certificate Auth' : 'User Auth (MFA)'}
+                    </span>
                   </div>
-                  <div className="text-sm text-muted-foreground mt-1 flex items-center gap-2">
-                    <Hash className="h-3 w-3" />
-                    Thumbprint: {cred.certificateThumbprint}
-                  </div>
+                  {cred.authType === 'certificate' ? (
+                    <>
+                      <div className="text-sm flex items-center gap-2">
+                        <Key className="h-3 w-3" />
+                        <span className="text-muted-foreground">App ID:</span> {cred.appId}
+                      </div>
+                      <div className="text-sm mt-1 flex items-center gap-2">
+                        <Hash className="h-3 w-3" />
+                        <span className="text-muted-foreground">Thumbprint:</span> {cred.certificateThumbprint}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-sm flex items-center gap-2">
+                      <User className="h-3 w-3" />
+                      <span className="text-muted-foreground">Username:</span> {cred.username}
+                    </div>
+                  )}
                   {cred.description && (
-                    <div className="text-sm text-muted-foreground mt-1">{cred.description}</div>
+                    <div className="text-sm text-muted-foreground mt-1 italic">{cred.description}</div>
                   )}
                   <div className="flex items-center gap-2 mt-2">
-                    <span className={`text-xs px-2 py-1 rounded ${cred.isActive ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                    <span className={`text-xs px-2 py-1 rounded ${cred.isActive ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' : 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-100'}`}>
                       {cred.isActive ? 'Active' : 'Inactive'}
                     </span>
                     <span className="text-xs text-muted-foreground">
@@ -382,8 +412,51 @@ export function AdminPowerShellCredentials({ tenantId, tenantName }: AdminPowerS
         {/* Add/Edit Form */}
         {isAdding ? (
           <form onSubmit={handleSubmit} className="space-y-4 p-4 border rounded-lg bg-muted/50">
-            <div className="space-y-2">
-              <Label htmlFor="appId">Application (Client) ID *</Label>
+            {/* Authentication Type Selector */}
+            <div className="space-y-3">
+              <Label>Authentication Type *</Label>
+              <RadioGroup
+                value={formData.authType}
+                onValueChange={(value: 'certificate' | 'user') => setFormData({ ...formData, authType: value })}
+                disabled={!!editingId}
+              >
+                <div className="flex items-center space-x-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors">
+                  <RadioGroupItem value="certificate" id="auth-certificate" />
+                  <Label htmlFor="auth-certificate" className="flex-1 cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <Shield className="h-4 w-4 text-green-600" />
+                      <span className="font-semibold">Certificate Authentication (Recommended)</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      No passwords, no MFA prompts. Best for automatic operations.
+                    </p>
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors">
+                  <RadioGroupItem value="user" id="auth-user" />
+                  <Label htmlFor="auth-user" className="flex-1 cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <User className="h-4 w-4 text-blue-600" />
+                      <span className="font-semibold">User Authentication (MFA Required)</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Username/password with MFA. Requires interactive PowerShell session.
+                    </p>
+                  </Label>
+                </div>
+              </RadioGroup>
+              {editingId && (
+                <p className="text-xs text-amber-600">
+                  ⚠️ Cannot change authentication type when editing. Create a new credential instead.
+                </p>
+              )}
+            </div>
+
+            {/* Certificate Fields */}
+            {formData.authType === 'certificate' && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="appId">Application (Client) ID *</Label>
               <Input
                 id="appId"
                 type="text"
@@ -417,6 +490,43 @@ export function AdminPowerShellCredentials({ tenantId, tenantName }: AdminPowerS
                 </p>
               )}
             </div>
+              </>
+            )}
+
+            {/* User Authentication Fields */}
+            {formData.authType === 'user' && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="username">Microsoft 365 Admin Username *</Label>
+                  <Input
+                    id="username"
+                    type="email"
+                    placeholder="admin@yourdomain.onmicrosoft.com"
+                    value={formData.username}
+                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                    required
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Admin account with Teams Administrator role and MFA enabled
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password *</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="Enter password"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    required={!editingId}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {editingId ? 'Leave blank to keep existing password' : 'Will be encrypted before storage'}
+                  </p>
+                </div>
+              </>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="description">Description (Optional)</Label>
@@ -435,11 +545,11 @@ export function AdminPowerShellCredentials({ tenantId, tenantName }: AdminPowerS
                 disabled={
                   createMutation.isPending ||
                   updateMutation.isPending ||
-                  (formData.certificateThumbprint && !validateThumbprint(formData.certificateThumbprint))
+                  (formData.authType === 'certificate' && formData.certificateThumbprint && !validateThumbprint(formData.certificateThumbprint))
                 }
               >
                 <Check className="h-4 w-4 mr-2" />
-                {editingId ? 'Update' : 'Add'} Credential
+                {editingId ? 'Update' : 'Add'} {formData.authType === 'certificate' ? 'Certificate' : 'User'} Credential
               </Button>
               <Button type="button" variant="outline" onClick={cancelEdit}>
                 <X className="h-4 w-4 mr-2" />
@@ -450,7 +560,7 @@ export function AdminPowerShellCredentials({ tenantId, tenantName }: AdminPowerS
         ) : (
           <Button onClick={() => setIsAdding(true)}>
             <Plus className="h-4 w-4 mr-2" />
-            Add PowerShell Certificate Credentials
+            Add PowerShell Credentials
           </Button>
         )}
       </CardContent>
