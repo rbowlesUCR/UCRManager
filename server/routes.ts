@@ -2169,12 +2169,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { tenantId } = req.params;
       const credentials = await storage.getTenantPowershellCredentials(tenantId);
 
-      // Remove encrypted passwords from response for security
+      // Remove encrypted passwords from response for security, but include all other fields
       const sanitized = credentials.map(cred => ({
         id: cred.id,
         tenantId: cred.tenantId,
+        authType: cred.authType || 'certificate', // Default to certificate for backward compatibility
+        // Certificate fields
         appId: cred.appId,
         certificateThumbprint: cred.certificateThumbprint,
+        // User fields
+        username: cred.username,
+        // DO NOT include encryptedPassword for security
         description: cred.description,
         isActive: cred.isActive,
         createdAt: cred.createdAt,
@@ -2192,47 +2197,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/tenant/:tenantId/powershell-credentials", requireAdminAuth, async (req, res) => {
     try {
       const { tenantId } = req.params;
-      const { appId, certificateThumbprint, username, password, description } = req.body;
+      const { authType, appId, certificateThumbprint, username, password, description } = req.body;
 
-      // Support both certificate-based and legacy user account authentication
-      const isCertificateBased = appId && certificateThumbprint;
-      const isUserAccount = username && password;
+      console.log('[Create Credentials] Received:', { authType, appId, username: username ? '***' : undefined });
 
-      if (!isCertificateBased && !isUserAccount) {
+      // Validate based on auth type
+      if (authType === 'certificate') {
+        if (!appId || !certificateThumbprint) {
+          return res.status(400).json({
+            error: "appId and certificateThumbprint are required for certificate authentication"
+          });
+        }
+      } else if (authType === 'user') {
+        if (!username || !password) {
+          return res.status(400).json({
+            error: "username and password are required for user authentication"
+          });
+        }
+      } else {
         return res.status(400).json({
-          error: "Either (appId + certificateThumbprint) or (username + password) are required"
+          error: "authType must be 'certificate' or 'user'"
         });
       }
 
       // Prepare credential data
       const credentialData: any = {
         tenantId,
+        authType: authType || 'certificate',
         description,
         isActive: true,
+        usernameDeprecated: "",
+        encryptedPasswordDeprecated: "",
       };
 
-      if (isCertificateBased) {
+      if (authType === 'certificate') {
         // Certificate-based authentication (recommended)
         credentialData.appId = appId;
         credentialData.certificateThumbprint = certificateThumbprint;
-        credentialData.usernameDeprecated = "";
-        credentialData.encryptedPasswordDeprecated = "";
+        credentialData.username = null;
+        credentialData.encryptedPassword = null;
       } else {
-        // Legacy user account authentication
+        // User account authentication with MFA
         credentialData.appId = null;
         credentialData.certificateThumbprint = null;
-        credentialData.usernameDeprecated = username;
-        credentialData.encryptedPasswordDeprecated = encrypt(password);
+        credentialData.username = username;
+        credentialData.encryptedPassword = encrypt(password);
       }
 
+      console.log('[Create Credentials] Creating with authType:', authType);
       const credential = await storage.createTenantPowershellCredentials(credentialData);
 
       // Return credential details (without sensitive data)
       res.json({
         id: credential.id,
         tenantId: credential.tenantId,
+        authType: credential.authType,
         appId: credential.appId,
         certificateThumbprint: credential.certificateThumbprint,
+        username: credential.username,
         description: credential.description,
         isActive: credential.isActive,
         createdAt: credential.createdAt,

@@ -85,10 +85,15 @@ export const operatorUsers = pgTable("operator_users", {
 export const tenantPowershellCredentials = pgTable("tenant_powershell_credentials", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   tenantId: varchar("tenant_id").notNull().references(() => customerTenants.id, { onDelete: "cascade" }),
+  // Authentication type
+  authType: text("auth_type").notNull().default('certificate'), // 'certificate' or 'user'
   // Certificate-based authentication (recommended)
   appId: text("app_id"), // Azure AD Application (Client) ID for certificate-based auth
   certificateThumbprint: text("certificate_thumbprint"), // Thumbprint of certificate in Windows cert store
-  // Legacy user account authentication (deprecated but kept for backward compatibility)
+  // User account authentication with MFA
+  username: text("username"), // Microsoft 365 admin username
+  encryptedPassword: text("encrypted_password"), // AES-256-GCM encrypted password
+  // Legacy fields (deprecated but kept for backward compatibility)
   usernameDeprecated: text("username_deprecated").notNull().default(''), // Deprecated: old username field
   encryptedPasswordDeprecated: text("encrypted_password_deprecated").notNull().default(''), // Deprecated: old encrypted password field
   description: text("description"), // Optional description

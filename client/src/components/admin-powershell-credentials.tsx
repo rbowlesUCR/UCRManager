@@ -36,6 +36,8 @@ export function AdminPowerShellCredentials({ tenantId, tenantName }: AdminPowerS
   const [isTesting, setIsTesting] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showCertDialog, setShowCertDialog] = useState(false);
+
+  console.log('[AdminPowerShell] Component rendered for tenant:', tenantName);
   const [certData, setCertData] = useState<{
     thumbprint: string;
     subject: string;
@@ -56,6 +58,12 @@ export function AdminPowerShellCredentials({ tenantId, tenantName }: AdminPowerS
   // Fetch credentials
   const { data: credentials = [], isLoading } = useQuery<PowerShellCredential[]>({
     queryKey: [`/api/admin/tenant/${tenantId}/powershell-credentials`],
+    onSuccess: (data) => {
+      console.log('[AdminPowerShell] Loaded credentials:', data);
+    },
+    onError: (error) => {
+      console.error('[AdminPowerShell] Failed to load credentials:', error);
+    }
   });
 
   // Create credential mutation
@@ -412,12 +420,20 @@ export function AdminPowerShellCredentials({ tenantId, tenantName }: AdminPowerS
         {/* Add/Edit Form */}
         {isAdding ? (
           <form onSubmit={handleSubmit} className="space-y-4 p-4 border rounded-lg bg-muted/50">
+            {/* Debug Info */}
+            <div className="text-xs p-2 bg-yellow-100 dark:bg-yellow-900 rounded">
+              DEBUG: isAdding={isAdding.toString()}, authType={formData.authType}, editingId={editingId || 'null'}
+            </div>
+
             {/* Authentication Type Selector */}
             <div className="space-y-3">
               <Label>Authentication Type *</Label>
               <RadioGroup
                 value={formData.authType}
-                onValueChange={(value: 'certificate' | 'user') => setFormData({ ...formData, authType: value })}
+                onValueChange={(value: 'certificate' | 'user') => {
+                  console.log('[AdminPowerShell] Auth type changed to:', value);
+                  setFormData({ ...formData, authType: value });
+                }}
                 disabled={!!editingId}
               >
                 <div className="flex items-center space-x-2 p-3 border rounded-lg hover:bg-muted/50 transition-colors">
@@ -558,7 +574,10 @@ export function AdminPowerShellCredentials({ tenantId, tenantName }: AdminPowerS
             </div>
           </form>
         ) : (
-          <Button onClick={() => setIsAdding(true)}>
+          <Button onClick={() => {
+            console.log('[AdminPowerShell] Add Credentials button clicked');
+            setIsAdding(true);
+          }}>
             <Plus className="h-4 w-4 mr-2" />
             Add PowerShell Credentials
           </Button>
