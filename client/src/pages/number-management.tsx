@@ -13,11 +13,16 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Save, Phone, Plus, Edit, Trash2, Download, Upload, BarChart3, Filter } from "lucide-react";
 import { TenantSelector } from "@/components/tenant-selector";
-import type { CustomerTenant, PhoneNumberInventory, InsertPhoneNumberInventory, NumberStatus, NumberType } from "@shared/schema";
+import type { CustomerTenant, PhoneNumberInventory, InsertPhoneNumberInventory, NumberStatus, NumberType, OperatorSession } from "@shared/schema";
 
 export default function NumberManagement() {
   const { toast } = useToast();
   const [selectedTenant, setSelectedTenant] = useState<CustomerTenant | null>(null);
+
+  // Fetch operator session for audit trail
+  const { data: session } = useQuery<OperatorSession>({
+    queryKey: ["/api/auth/session"],
+  });
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [typeFilter, setTypeFilter] = useState<string>("");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
@@ -205,8 +210,16 @@ export default function NumberManagement() {
       return;
     }
 
-    // Get operator email from session
-    const operatorEmail = "operator@example.com"; // TODO: Get from session
+    if (!session) {
+      toast({
+        title: "Session error",
+        description: "Unable to get operator session",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const operatorEmail = session.email;
 
     createNumberMutation.mutate({
       tenantId: selectedTenant.id,
@@ -230,7 +243,16 @@ export default function NumberManagement() {
   const handleUpdateNumber = () => {
     if (!selectedNumber) return;
 
-    const operatorEmail = "operator@example.com"; // TODO: Get from session
+    if (!session) {
+      toast({
+        title: "Session error",
+        description: "Unable to get operator session",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const operatorEmail = session.email;
 
     updateNumberMutation.mutate({
       id: selectedNumber.id,
