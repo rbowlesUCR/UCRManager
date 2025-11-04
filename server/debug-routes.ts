@@ -666,6 +666,119 @@ Get-ChildItem -Path Cert:\\LocalMachine\\My | ForEach-Object {
     }
   });
 
+  // ===== LIFECYCLE DEBUGGING ENDPOINTS =====
+
+  // Manually trigger a lifecycle check
+  app.post("/api/debug/lifecycle/run-check", checkDebugEnabled, async (req, res) => {
+    try {
+      const { lifecycleManager } = await import("./lifecycle-manager");
+      const result = await lifecycleManager.runLifecycleCheck();
+      res.json({
+        success: true,
+        result,
+        message: "Lifecycle check completed successfully"
+      });
+    } catch (error) {
+      console.error("Debug lifecycle check error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+    }
+  });
+
+  // Get lifecycle statistics
+  app.get("/api/debug/lifecycle/stats", checkDebugEnabled, async (req, res) => {
+    try {
+      const { lifecycleManager } = await import("./lifecycle-manager");
+      const stats = await lifecycleManager.getLifecycleStats();
+      res.json({
+        success: true,
+        stats,
+        message: "Lifecycle statistics retrieved successfully"
+      });
+    } catch (error) {
+      console.error("Debug lifecycle stats error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+    }
+  });
+
+  // Create test aging scenario
+  app.post("/api/debug/lifecycle/test-aging/:tenantId", checkDebugEnabled, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { count = 5 } = req.body;
+
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      // Create numbers with different aging scenarios
+      const testNumbers = [];
+      const now = new Date();
+
+      for (let i = 0; i < count; i++) {
+        const agingUntil = new Date(now);
+
+        // Create numbers with different expiration dates
+        if (i === 0) {
+          // Already expired (should transition immediately)
+          agingUntil.setDate(agingUntil.getDate() - 1);
+        } else if (i === 1) {
+          // Expires in 1 day
+          agingUntil.setDate(agingUntil.getDate() + 1);
+        } else if (i === 2) {
+          // Expires in 7 days
+          agingUntil.setDate(agingUntil.getDate() + 7);
+        } else {
+          // Expires in 30+ days
+          agingUntil.setDate(agingUntil.getDate() + 30 + i);
+        }
+
+        const number = await storage.createPhoneNumber({
+          tenantId,
+          lineUri: `tel:+1555999${String(8000 + i).padStart(4, '0')}`,
+          displayName: `Test Aging Number ${i + 1}`,
+          userPrincipalName: `test.aging${i + 1}@test.com`,
+          numberType: "did",
+          status: "aging",
+          agingUntil,
+          notes: `Test aging number - expires ${agingUntil.toISOString()}`,
+          tags: `test,debug,aging,lifecycle-test-${Date.now()}`,
+          numberRange: "+1555999xxxx",
+          createdBy: "debug-system",
+          lastModifiedBy: "debug-system",
+        });
+
+        testNumbers.push({
+          id: number.id,
+          lineUri: number.lineUri,
+          status: number.status,
+          agingUntil: number.agingUntil,
+          daysUntilExpiry: Math.ceil((agingUntil.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+        });
+      }
+
+      res.json({
+        success: true,
+        count: testNumbers.length,
+        numbers: testNumbers,
+        message: `Created ${testNumbers.length} test aging numbers with various expiration dates`,
+        nextAction: "Run POST /api/debug/lifecycle/run-check to test aging transitions"
+      });
+    } catch (error) {
+      console.error("Debug test aging error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+    }
+  });
+
   console.log(`
   ┌─────────────────────────────────────────────────────┐
   │  🔧 DEBUG ENDPOINTS AVAILABLE                       │
@@ -687,6 +800,11 @@ Get-ChildItem -Path Cert:\\LocalMachine\\My | ForEach-Object {
   │  GET  /api/debug/numbers/next-available/:tenantId   │
   │  DELETE /api/debug/numbers/cleanup/:tenantId        │
   │  GET  /api/debug/numbers/statistics/:tenantId       │
+  ├─────────────────────────────────────────────────────┤
+  │  Number Lifecycle Debugging:                        │
+  │  POST /api/debug/lifecycle/run-check                │
+  │  GET  /api/debug/lifecycle/stats                    │
+  │  POST /api/debug/lifecycle/test-aging/:tenantId     │
   ├─────────────────────────────────────────────────────┤
   │  To disable: Set DEBUG_MODE=false                   │
   └─────────────────────────────────────────────────────┘
