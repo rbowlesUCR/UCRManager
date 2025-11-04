@@ -150,6 +150,97 @@ if (userVoiceConfig.voiceRoutingPolicy && routingPolicies) {
 - **Fixed:** No data contamination between customer tenants
 - **Improved:** Better user experience when editing existing voice configurations
 
+---
+
+## Problem 3: Automatic PowerShell Policy Retrieval Not Working
+
+### Problem Summary
+The system was supposed to automatically fetch real voice routing policies via PowerShell certificate authentication when selecting a tenant, but was returning only placeholder "Global" policy from Graph API.
+
+### Root Cause
+Two issues were preventing automatic policy retrieval:
+
+1. **Wrong API Endpoint**: Dashboard was calling `/api/teams/routing-policies` (Graph API with placeholder) instead of `/api/powershell/get-policies` (PowerShell certificate auth with real policies)
+
+2. **Data Format Mismatch**: When PowerShell endpoint was called, it returned policies with fields:
+   - `Identity` (e.g., "Tag:Test Policy")
+   - `Description`
+   - `OnlinePstnUsages`
+
+   But the frontend expected:
+   - `id`
+   - `name`
+   - `description`
+   - `pstnUsages`
+
+   This caused `{id: undefined, name: undefined}` and crashes when trying to match policies.
+
+### Solution Implemented
+
+**1. Changed API Endpoint (dashboard.tsx:56-86)**
+
+Changed from Graph API to PowerShell API:
+```typescript
+// Before: Graph API (placeholder only)
+const { data: graphPolicies } = useQuery({
+  queryKey: ["/api/teams/routing-policies", selectedTenant?.id],
+  queryFn: async () => {
+    const res = await fetch(`/api/teams/routing-policies?tenantId=${selectedTenant?.id}`);
+    return await res.json();
+  },
+});
+
+// After: PowerShell certificate auth (real policies)
+const { data: graphPolicies } = useQuery({
+  queryKey: ["/api/powershell/get-policies", selectedTenant?.id],
+  queryFn: async () => {
+    const res = await fetch(`/api/powershell/get-policies`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tenantId: selectedTenant?.id }),
+    });
+    const data = await res.json();
+    return data.success && data.policies ? data.policies : [];
+  },
+});
+```
+
+**2. Added Server-Side Transformation (routes.ts:1850-1859)**
+
+Transform PowerShell output format to frontend format:
+```typescript
+// Transform PowerShell format to frontend format
+const policies = (Array.isArray(rawPolicies) ? rawPolicies : [rawPolicies]).map((p: any) => ({
+  id: p.Identity || "",
+  name: p.Identity ? p.Identity.replace(/^Tag:/i, "") : "",
+  description: p.Description || "",
+  pstnUsages: p.OnlinePstnUsages || []
+}));
+```
+
+### Testing
+1. Select a tenant with PowerShell certificate credentials configured
+2. Policies should automatically load within 1-2 seconds
+3. Console should show: `[Dashboard] Retrieved X policies via PowerShell`
+4. Dropdown should show real policies (not just "Global" placeholder)
+5. Select a user with an assigned policy
+6. Click "Load current values into form"
+7. Both phone number and voice routing policy should populate correctly
+
+### Impact
+- **Fixed:** Policies automatically retrieved via PowerShell when tenant selected
+- **Fixed:** No manual PowerShell button click required for basic operations
+- **Fixed:** Policy data format correctly transformed for frontend
+- **Fixed:** "Load current values" now works seamlessly
+- **Improved:** Significantly better user experience - automatic policy loading
+
+---
+
 ## Commit
 Branch: `feature/auto-refresh-on-tenant-select`
-These fixes ensure the auto-refresh feature works completely, including voice routing policies, and the form pre-fill functionality works correctly.
+
+These fixes ensure:
+1. Auto-refresh works completely when switching tenants
+2. Voice routing policies are automatically retrieved via PowerShell certificate auth
+3. "Load current values" button properly populates both phone number and voice routing policy
+4. Data format transformation happens correctly between PowerShell and frontend

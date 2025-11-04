@@ -1848,7 +1848,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (result.success) {
         try {
           // Try to parse JSON output from PowerShell
-          const policies = JSON.parse(result.output);
+          const rawPolicies = JSON.parse(result.output);
+
+          // Transform PowerShell format to frontend format
+          const policies = (Array.isArray(rawPolicies) ? rawPolicies : [rawPolicies]).map((p: any) => ({
+            id: p.Identity || "",
+            name: p.Identity ? p.Identity.replace(/^Tag:/i, "") : "",
+            description: p.Description || "",
+            pstnUsages: p.OnlinePstnUsages || []
+          }));
+
           res.json({
             success: true,
             policies,

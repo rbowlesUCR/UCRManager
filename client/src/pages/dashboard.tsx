@@ -51,19 +51,37 @@ export default function Dashboard() {
     },
   });
 
-  // Fetch voice routing policies when tenant is selected (fallback to Graph API)
+  // Fetch voice routing policies when tenant is selected via PowerShell certificate auth
   const { data: graphPolicies, isLoading: isLoadingPolicies } = useQuery({
-    queryKey: ["/api/teams/routing-policies", selectedTenant?.id],
+    queryKey: ["/api/powershell/get-policies", selectedTenant?.id],
     enabled: !!selectedTenant,
     queryFn: async () => {
-      const res = await fetch(`/api/teams/routing-policies?tenantId=${selectedTenant?.id}`, {
+      const res = await fetch(`/api/powershell/get-policies`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
         credentials: "include",
+        body: JSON.stringify({ tenantId: selectedTenant?.id }),
       });
       if (!res.ok) {
         const text = await res.text();
+        console.error(`Failed to fetch policies via PowerShell: ${text}`);
         throw new Error(`${res.status}: ${text}`);
       }
-      return await res.json();
+      const data = await res.json();
+
+      console.log("[Dashboard] PowerShell policies response:", data);
+
+      // The PowerShell endpoint returns { success: true, policies: [...] }
+      if (data.success && data.policies) {
+        console.log(`[Dashboard] Retrieved ${data.policies.length} policies via PowerShell`);
+        return data.policies;
+      }
+
+      // Fallback to empty array if no policies
+      console.warn("[Dashboard] No policies returned from PowerShell");
+      return [];
     },
   });
 
@@ -361,12 +379,40 @@ export default function Dashboard() {
                             handlePhoneNumberChange(userVoiceConfig.lineUri);
                           }
                           if (userVoiceConfig.voiceRoutingPolicy && routingPolicies) {
-                            // Find the policy by name and use its ID for the Select component
-                            const matchingPolicy = (routingPolicies as VoiceRoutingPolicy[]).find(
-                              (p) => p.name === userVoiceConfig.voiceRoutingPolicy
-                            );
+                            // Normalize policy name for matching (remove Tag: prefix, trim, lowercase)
+                            const normalizedUserPolicy = userVoiceConfig.voiceRoutingPolicy
+                              .replace(/^Tag:/i, "")
+                              .trim()
+                              .toLowerCase();
+
+                            console.log('[Load Values] Looking for policy:', {
+                              raw: userVoiceConfig.voiceRoutingPolicy,
+                              normalized: normalizedUserPolicy,
+                              availablePolicies: (routingPolicies as VoiceRoutingPolicy[]).map(p => ({
+                                id: p.id,
+                                name: p.name
+                              }))
+                            });
+
+                            // Find policy by matching normalized names or IDs
+                            const matchingPolicy = (routingPolicies as VoiceRoutingPolicy[]).find((p) => {
+                              const normalizedPolicyName = p.name.replace(/^Tag:/i, "").trim().toLowerCase();
+                              const normalizedPolicyId = p.id.replace(/^Tag:/i, "").trim().toLowerCase();
+
+                              return normalizedPolicyName === normalizedUserPolicy ||
+                                     normalizedPolicyId === normalizedUserPolicy;
+                            });
+
                             if (matchingPolicy) {
+                              console.log('[Load Values] Found matching policy:', matchingPolicy);
                               setSelectedPolicy(matchingPolicy.id);
+                            } else {
+                              console.warn('[Load Values] No matching policy found for:', userVoiceConfig.voiceRoutingPolicy);
+                              toast({
+                                title: "Policy not found",
+                                description: `Could not find policy "${userVoiceConfig.voiceRoutingPolicy}" in the available policies`,
+                                variant: "destructive",
+                              });
                             }
                           }
                           toast({
