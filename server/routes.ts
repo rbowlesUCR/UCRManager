@@ -1094,6 +1094,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get current voice configuration for a specific user via PowerShell
+  app.get("/api/teams/user-voice-config", requireOperatorAuth, async (req, res) => {
+    try {
+      const { tenantId, userPrincipalName } = req.query;
+
+      if (!tenantId || typeof tenantId !== "string") {
+        return res.status(400).json({ error: "Tenant ID is required" });
+      }
+
+      if (!userPrincipalName || typeof userPrincipalName !== "string") {
+        return res.status(400).json({ error: "User Principal Name is required" });
+      }
+
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      // Get PowerShell credentials for certificate auth
+      const credentials = await storage.getTenantPowershellCredentials(tenantId);
+      const activeCred = credentials.find(c => c.isActive);
+
+      if (!activeCred || !activeCred.appId || !activeCred.certificateThumbprint) {
+        return res.status(400).json({
+          error: "PowerShell certificate credentials not configured for this tenant"
+        });
+      }
+
+      const certCredentials: PowerShellCertificateCredentials = {
+        tenantId: tenant.tenantId,
+        appId: activeCred.appId,
+        certificateThumbprint: activeCred.certificateThumbprint,
+      };
+
+      console.log(`[Voice Config] Querying voice config for ${userPrincipalName}`);
+
+      // Get user details via PowerShell
+      const result = await getTeamsUserCert(certCredentials, userPrincipalName);
+
+      if (!result.success) {
+        console.error(`[Voice Config] Failed to get user config:`, result.error);
+        return res.status(500).json({
+          error: result.error || "Failed to get user voice configuration"
+        });
+      }
+
+      // Parse the JSON output
+      let userConfig;
+      try {
+        userConfig = JSON.parse(result.output.trim());
+      } catch (parseError) {
+        console.error(`[Voice Config] Failed to parse PowerShell output:`, result.output);
+        return res.status(500).json({
+          error: "Failed to parse user configuration"
+        });
+      }
+
+      console.log(`[Voice Config] Retrieved config for ${userPrincipalName}:`, {
+        hasLineURI: !!userConfig.LineURI,
+        hasPolicy: !!userConfig.OnlineVoiceRoutingPolicy,
+      });
+
+      res.json({
+        displayName: userConfig.DisplayName,
+        userPrincipalName: userConfig.UserPrincipalName,
+        lineUri: userConfig.LineURI || null,
+        voiceRoutingPolicy: userConfig.OnlineVoiceRoutingPolicy || null,
+        enterpriseVoiceEnabled: userConfig.EnterpriseVoiceEnabled || false,
+        hostedVoiceMail: userConfig.HostedVoiceMail || false,
+      });
+    } catch (error) {
+      console.error("Error fetching user voice config:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : "Failed to fetch user voice configuration"
+      });
+    }
+  });
+
   // Get voice routing policies for a tenant
   app.get("/api/teams/routing-policies", requireOperatorAuth, async (req, res) => {
     try {

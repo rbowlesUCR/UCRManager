@@ -15,6 +15,15 @@ import { ConfigurationProfiles } from "@/components/configuration-profiles";
 import { PowerShellMfaModal } from "@/components/powershell-mfa-modal";
 import type { TeamsUser, VoiceRoutingPolicy, CustomerTenant, ConfigurationProfile } from "@shared/schema";
 
+interface UserVoiceConfig {
+  displayName: string;
+  userPrincipalName: string;
+  lineUri: string | null;
+  voiceRoutingPolicy: string | null;
+  enterpriseVoiceEnabled: boolean;
+  hostedVoiceMail: boolean;
+}
+
 export default function Dashboard() {
   const { toast } = useToast();
   const [selectedTenant, setSelectedTenant] = useState<CustomerTenant | null>(null);
@@ -60,6 +69,25 @@ export default function Dashboard() {
 
   // Use PowerShell policies if available, otherwise use Graph API policies
   const routingPolicies = powershellPolicies || graphPolicies;
+
+  // Fetch current voice configuration for selected user via PowerShell
+  const { data: userVoiceConfig, isLoading: isLoadingVoiceConfig } = useQuery<UserVoiceConfig>({
+    queryKey: ["/api/teams/user-voice-config", selectedTenant?.id, selectedUser?.userPrincipalName],
+    enabled: !!selectedTenant && !!selectedUser,
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/teams/user-voice-config?tenantId=${selectedTenant?.id}&userPrincipalName=${encodeURIComponent(selectedUser!.userPrincipalName)}`,
+        {
+          credentials: "include",
+        }
+      );
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`${res.status}: ${text}`);
+      }
+      return await res.json();
+    },
+  });
 
   const assignVoiceMutation = useMutation({
     mutationFn: async (data: {
@@ -265,8 +293,66 @@ export default function Dashboard() {
               {selectedUser && (
                 <p className="text-xs text-muted-foreground">
                   {selectedUser.mail || selectedUser.userPrincipalName}
-                  {selectedUser.lineUri && ` • Current: ${selectedUser.lineUri}`}
                 </p>
+              )}
+
+              {/* Current Voice Configuration */}
+              {selectedUser && isLoadingVoiceConfig && (
+                <div className="rounded-md border border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-800 p-3">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-blue-600 dark:text-blue-400" />
+                    <p className="text-sm text-blue-700 dark:text-blue-300">
+                      Loading current configuration...
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {selectedUser && userVoiceConfig && !isLoadingVoiceConfig && (
+                <div className="rounded-md border border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-800 p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Phone className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <p className="text-sm font-semibold text-blue-900 dark:text-blue-100">
+                      Current Configuration
+                    </p>
+                  </div>
+                  <div className="space-y-1 text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="text-blue-700 dark:text-blue-300">Phone Number:</span>
+                      <span className="font-mono font-medium text-blue-900 dark:text-blue-100">
+                        {userVoiceConfig.lineUri || "Not assigned"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-blue-700 dark:text-blue-300">Voice Policy:</span>
+                      <span className="font-mono font-medium text-blue-900 dark:text-blue-100">
+                        {userVoiceConfig.voiceRoutingPolicy || "Not assigned"}
+                      </span>
+                    </div>
+                    {userVoiceConfig.lineUri && (
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0 text-xs text-blue-600 dark:text-blue-400"
+                        onClick={() => {
+                          if (userVoiceConfig.lineUri) {
+                            setPhoneNumber(userVoiceConfig.lineUri);
+                            handlePhoneNumberChange(userVoiceConfig.lineUri);
+                          }
+                          if (userVoiceConfig.voiceRoutingPolicy) {
+                            setSelectedPolicy(userVoiceConfig.voiceRoutingPolicy);
+                          }
+                          toast({
+                            title: "Form pre-filled",
+                            description: "Current values have been loaded into the form",
+                          });
+                        }}
+                      >
+                        Load current values into form →
+                      </Button>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
 
