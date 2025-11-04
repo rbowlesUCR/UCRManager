@@ -9,6 +9,7 @@ import OperatorLogin from "@/pages/operator-login";
 import AdminLogin from "@/pages/admin-login";
 import Dashboard from "@/pages/dashboard";
 import PolicyManagement from "@/pages/policy-management";
+import NumberManagement from "@/pages/number-management";
 import AdminAuditLogs from "@/pages/admin-audit-logs";
 import AdminCustomerTenants from "@/pages/admin-customer-tenants";
 import AdminDocumentation from "@/pages/admin-documentation";
@@ -86,6 +87,9 @@ function Router() {
       </Route>
       <Route path="/policies">
         {() => <ProtectedRoute component={PolicyManagement} />}
+      </Route>
+      <Route path="/numbers">
+        {() => <ProtectedRoute component={NumberManagement} />}
       </Route>
       <Route path="/admin/audit-logs">
         {() => <ProtectedAdminRoute component={AdminAuditLogs} />}

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { LogOut, User, Settings, Phone, Shield } from "lucide-react";
+import { LogOut, User, Settings, Phone, Shield, Hash } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import type { OperatorSession } from "@shared/schema";
 
@@ -113,6 +113,16 @@ export function Layout({ children }: LayoutProps) {
               >
                 <Shield className="w-4 h-4 mr-2" />
                 Policy Management
+              </Button>
+            </Link>
+            <Link href="/numbers">
+              <Button
+                variant={location === "/numbers" ? "default" : "ghost"}
+                className="h-12 rounded-none border-b-2 border-transparent data-[active=true]:border-primary"
+                data-active={location === "/numbers"}
+              >
+                <Hash className="w-4 h-4 mr-2" />
+                Number Management
               </Button>
             </Link>
           </div>
