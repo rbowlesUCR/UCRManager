@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -89,6 +89,24 @@ export default function Dashboard() {
     },
   });
 
+  // Auto-refresh when tenant changes
+  useEffect(() => {
+    if (selectedTenant) {
+      // Clear selected user when tenant changes
+      setSelectedUser(null);
+      setPhoneNumber("");
+      setSelectedPolicy("");
+      setPhoneValidation(null);
+      setPowershellPolicies(null); // Clear PowerShell policies from previous tenant
+
+      // Invalidate and refetch users and policies for the new tenant
+      queryClient.invalidateQueries({ queryKey: ["/api/teams/users", selectedTenant.id] });
+      queryClient.invalidateQueries({ queryKey: ["/api/teams/routing-policies", selectedTenant.id] });
+
+      console.log(`[Dashboard] Auto-refreshing data for tenant: ${selectedTenant.tenantName}`);
+    }
+  }, [selectedTenant?.id]); // Only run when tenant ID changes
+
   const assignVoiceMutation = useMutation({
     mutationFn: async (data: {
       tenantId: string;
@@ -108,8 +126,11 @@ export default function Dashboard() {
       setPhoneNumber("");
       setSelectedPolicy("");
       setPhoneValidation(null);
-      // Refetch users to get updated data
+      // Refetch users and voice config to get updated data
       queryClient.invalidateQueries({ queryKey: ["/api/teams/users", selectedTenant?.id] });
+      if (selectedUser) {
+        queryClient.invalidateQueries({ queryKey: ["/api/teams/user-voice-config", selectedTenant?.id, selectedUser.userPrincipalName] });
+      }
     },
     onError: (error: Error) => {
       toast({
