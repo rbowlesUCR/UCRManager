@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { LogOut, User, Settings } from "lucide-react";
+import { LogOut, User, Settings, Phone, Shield } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import type { OperatorSession } from "@shared/schema";
 
@@ -10,7 +10,7 @@ interface LayoutProps {
 }
 
 export function Layout({ children }: LayoutProps) {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
 
   const { data: session } = useQuery<OperatorSession>({
     queryKey: ["/api/auth/session"],
@@ -90,6 +90,34 @@ export function Layout({ children }: LayoutProps) {
           </div>
         </div>
       </header>
+
+      {/* Navigation Bar */}
+      <nav className="border-b bg-card">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="flex gap-1">
+            <Link href="/dashboard">
+              <Button
+                variant={location === "/dashboard" ? "default" : "ghost"}
+                className="h-12 rounded-none border-b-2 border-transparent data-[active=true]:border-primary"
+                data-active={location === "/dashboard"}
+              >
+                <Phone className="w-4 h-4 mr-2" />
+                Voice Configuration
+              </Button>
+            </Link>
+            <Link href="/policies">
+              <Button
+                variant={location === "/policies" ? "default" : "ghost"}
+                className="h-12 rounded-none border-b-2 border-transparent data-[active=true]:border-primary"
+                data-active={location === "/policies"}
+              >
+                <Shield className="w-4 h-4 mr-2" />
+                Policy Management
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </nav>
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto p-6">
