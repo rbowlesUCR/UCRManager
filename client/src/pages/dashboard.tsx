@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Save, X, Users, Phone, Upload, Terminal } from "lucide-react";
+import { Loader2, Save, X, Users, Phone, Upload, Terminal, Settings2 } from "lucide-react";
 import { TenantSelector } from "@/components/tenant-selector";
 import { UserSearchCombobox } from "@/components/user-search-combobox";
 import { BulkAssignmentDialog } from "@/components/bulk-assignment-dialog";
@@ -34,6 +35,7 @@ export default function Dashboard() {
   const [showBulkDialog, setShowBulkDialog] = useState(false);
   const [showPowerShellModal, setShowPowerShellModal] = useState(false);
   const [powershellPolicies, setPowershellPolicies] = useState<VoiceRoutingPolicy[] | null>(null);
+  const [activeTab, setActiveTab] = useState("configuration");
 
   // Fetch Teams users when tenant is selected
   const { data: teamsUsers, isLoading: isLoadingUsers } = useQuery({
@@ -243,7 +245,10 @@ export default function Dashboard() {
     setPhoneNumber(profile.phoneNumberPrefix);
     setSelectedPolicy(profile.defaultRoutingPolicy);
     handlePhoneNumberChange(profile.phoneNumberPrefix);
-    
+
+    // Switch to configuration tab
+    setActiveTab("configuration");
+
     toast({
       title: "Profile applied",
       description: `"${profile.profileName}" has been applied. You can now customize the phone number and save.`,
@@ -281,42 +286,56 @@ export default function Dashboard() {
         </CardContent>
       </Card>
 
-      {/* User and Voice Configuration */}
+      {/* Tabbed Interface */}
       {selectedTenant && (
-        <Card>
-          <CardHeader className="space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1">
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <Users className="w-5 h-5" />
-                  User Voice Configuration
-                </CardTitle>
-                <CardDescription>
-                  Select a Teams voice-enabled user and configure their phone settings
-                </CardDescription>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowPowerShellModal(true)}
-                  className="h-10"
-                  data-testid="button-powershell"
-                >
-                  <Terminal className="w-4 h-4 mr-2" />
-                  PowerShell
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => setShowBulkDialog(true)}
-                  className="h-10"
-                  data-testid="button-bulk-assign"
-                >
-                  <Upload className="w-4 h-4 mr-2" />
-                  Bulk Assign
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-2 h-auto">
+            <TabsTrigger value="configuration" className="flex items-center gap-2 py-3">
+              <Users className="w-4 h-4" />
+              User Configuration
+            </TabsTrigger>
+            <TabsTrigger value="profiles" className="flex items-center gap-2 py-3">
+              <Settings2 className="w-4 h-4" />
+              Configuration Profiles
+            </TabsTrigger>
+          </TabsList>
+
+          {/* User Configuration Tab */}
+          <TabsContent value="configuration" className="mt-6">
+            <Card>
+              <CardHeader className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Users className="w-5 h-5" />
+                      User Voice Configuration
+                    </CardTitle>
+                    <CardDescription>
+                      Select a Teams voice-enabled user and configure their phone settings
+                    </CardDescription>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowPowerShellModal(true)}
+                      className="h-10"
+                      data-testid="button-powershell"
+                    >
+                      <Terminal className="w-4 h-4 mr-2" />
+                      PowerShell
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowBulkDialog(true)}
+                      className="h-10"
+                      data-testid="button-bulk-assign"
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      Bulk Assign
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
           <CardContent className="space-y-6">
             {/* User Selection */}
             <div className="space-y-2">
@@ -534,16 +553,18 @@ export default function Dashboard() {
                 Cancel
               </Button>
             </div>
-          </CardContent>
-        </Card>
-      )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-      {/* Configuration Profiles */}
-      {selectedTenant && (
-        <ConfigurationProfiles 
-          selectedTenant={selectedTenant}
-          onApplyProfile={handleApplyProfile}
-        />
+          {/* Configuration Profiles Tab */}
+          <TabsContent value="profiles" className="mt-6">
+            <ConfigurationProfiles
+              selectedTenant={selectedTenant}
+              onApplyProfile={handleApplyProfile}
+            />
+          </TabsContent>
+        </Tabs>
       )}
 
       {/* Bulk Assignment Dialog */}
