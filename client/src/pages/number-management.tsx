@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,8 +28,12 @@ export default function NumberManagement() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [selectedNumber, setSelectedNumber] = useState<PhoneNumberInventory | null>(null);
   const [showStats, setShowStats] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Form state for add/edit
   const [formData, setFormData] = useState<Partial<InsertPhoneNumberInventory>>({
@@ -266,6 +270,211 @@ export default function NumberManagement() {
   const handleDeleteNumber = () => {
     if (!selectedNumber) return;
     deleteNumberMutation.mutate(selectedNumber.id);
+  };
+
+  // CSV Import/Export Functions
+  const parseCSV = (text: string): any[] => {
+    const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+    if (lines.length < 2) return []; // Need header + at least one data row
+
+    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+    const rows: any[] = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+      const row: any = {};
+
+      headers.forEach((header, index) => {
+        const value = values[index] || '';
+        // Map CSV headers to database fields
+        const fieldMap: { [key: string]: string } = {
+          'Line URI': 'lineUri',
+          'LineURI': 'lineUri',
+          'Display Name': 'displayName',
+          'DisplayName': 'displayName',
+          'User Principal Name': 'userPrincipalName',
+          'UserPrincipalName': 'userPrincipalName',
+          'UPN': 'userPrincipalName',
+          'Carrier': 'carrier',
+          'Location': 'location',
+          'Usage Location': 'usageLocation',
+          'UsageLocation': 'usageLocation',
+          'Voice Routing Policy': 'onlineVoiceRoutingPolicy',
+          'OnlineVoiceRoutingPolicy': 'onlineVoiceRoutingPolicy',
+          'Number Type': 'numberType',
+          'NumberType': 'numberType',
+          'Type': 'numberType',
+          'Status': 'status',
+          'Notes': 'notes',
+          'Tags': 'tags',
+          'Number Range': 'numberRange',
+          'NumberRange': 'numberRange',
+          'Range': 'numberRange',
+        };
+
+        const fieldName = fieldMap[header] || header.toLowerCase().replace(/\s+/g, '');
+        row[fieldName] = value;
+      });
+
+      rows.push(row);
+    }
+
+    return rows;
+  };
+
+  const handleCSVImport = async () => {
+    if (!importFile || !selectedTenant || !session) {
+      toast({
+        title: "Missing information",
+        description: "Please select a tenant and CSV file",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsImporting(true);
+
+    try {
+      const text = await importFile.text();
+      const parsedRows = parseCSV(text);
+
+      if (parsedRows.length === 0) {
+        toast({
+          title: "Empty file",
+          description: "The CSV file contains no data rows",
+          variant: "destructive",
+        });
+        setIsImporting(false);
+        return;
+      }
+
+      // Prepare numbers for bulk import
+      const numbers = parsedRows.map(row => ({
+        lineUri: row.lineUri || row.lineuri,
+        displayName: row.displayName || row.displayname || null,
+        userPrincipalName: row.userPrincipalName || row.userprincipalname || null,
+        carrier: row.carrier || null,
+        location: row.location || null,
+        usageLocation: row.usageLocation || row.usagelocation || null,
+        onlineVoiceRoutingPolicy: row.onlineVoiceRoutingPolicy || row.onlinevoiceroutingpolicy || null,
+        numberType: (row.numberType || row.numbertype || 'did') as NumberType,
+        status: (row.status || 'available') as NumberStatus,
+        notes: row.notes || null,
+        tags: row.tags || null,
+        numberRange: row.numberRange || row.numberrange || null,
+      }));
+
+      // Call bulk import API
+      const response = await apiRequest("POST", "/api/numbers/bulk-import", {
+        tenantId: selectedTenant.id,
+        numbers,
+      });
+
+      const successCount = response.success?.length || 0;
+      const errorCount = response.errors?.length || 0;
+
+      toast({
+        title: "Import completed",
+        description: `Successfully imported ${successCount} numbers. ${errorCount} errors.`,
+        variant: errorCount > 0 ? "default" : "default",
+      });
+
+      if (errorCount > 0) {
+        console.error("Import errors:", response.errors);
+      }
+
+      // Refresh the list
+      queryClient.invalidateQueries({ queryKey: ["/api/numbers", selectedTenant.id] });
+
+      // Close dialog and reset
+      setIsImportDialogOpen(false);
+      setImportFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    } catch (error: any) {
+      toast({
+        title: "Import failed",
+        description: error.message || "Failed to import CSV file",
+        variant: "destructive",
+      });
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  const handleExportCSV = () => {
+    if (!phoneNumbers || phoneNumbers.length === 0) {
+      toast({
+        title: "No data to export",
+        description: "There are no phone numbers to export",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Define CSV headers
+    const headers = [
+      'Line URI',
+      'Display Name',
+      'User Principal Name',
+      'Carrier',
+      'Location',
+      'Usage Location',
+      'Voice Routing Policy',
+      'Number Type',
+      'Status',
+      'Notes',
+      'Tags',
+      'Number Range',
+      'Created By',
+      'Last Modified By',
+      'Created At',
+      'Updated At'
+    ];
+
+    // Generate CSV content
+    const csvRows = [headers.join(',')];
+
+    phoneNumbers.forEach((number: PhoneNumberInventory) => {
+      const row = [
+        number.lineUri,
+        number.displayName || '',
+        number.userPrincipalName || '',
+        number.carrier || '',
+        number.location || '',
+        number.usageLocation || '',
+        number.onlineVoiceRoutingPolicy || '',
+        number.numberType,
+        number.status,
+        number.notes || '',
+        number.tags || '',
+        number.numberRange || '',
+        number.createdBy,
+        number.lastModifiedBy,
+        new Date(number.createdAt).toISOString(),
+        new Date(number.updatedAt).toISOString(),
+      ].map(value => `"${String(value).replace(/"/g, '""')}"`);
+
+      csvRows.push(row.join(','));
+    });
+
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+
+    link.setAttribute('href', url);
+    link.setAttribute('download', `phone-numbers-${selectedTenant?.tenantName || 'export'}-${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    toast({
+      title: "Export successful",
+      description: `Exported ${phoneNumbers.length} phone numbers to CSV`,
+    });
   };
 
   const getStatusBadgeVariant = (status: string) => {
@@ -514,12 +723,77 @@ export default function NumberManagement() {
                   </DialogContent>
                 </Dialog>
 
-                <Button variant="outline">
-                  <Upload className="w-4 h-4 mr-2" />
-                  Import CSV
-                </Button>
+                <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline">
+                      <Upload className="w-4 h-4 mr-2" />
+                      Import CSV
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Import Phone Numbers from CSV</DialogTitle>
+                      <DialogDescription>
+                        Select a CSV file to import phone numbers. File should include headers.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="csv-file">CSV File</Label>
+                        <input
+                          ref={fileInputRef}
+                          id="csv-file"
+                          type="file"
+                          accept=".csv"
+                          onChange={(e) => setImportFile(e.target.files?.[0] || null)}
+                          className="block w-full text-sm text-gray-900 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 focus:outline-none"
+                        />
+                        {importFile && (
+                          <p className="text-sm text-muted-foreground">
+                            Selected: {importFile.name} ({(importFile.size / 1024).toFixed(2)} KB)
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-sm text-muted-foreground space-y-2">
+                        <p className="font-semibold">Expected CSV format:</p>
+                        <ul className="list-disc list-inside space-y-1 text-xs">
+                          <li>Line URI (required)</li>
+                          <li>Display Name, User Principal Name, Carrier, Location</li>
+                          <li>Usage Location, Voice Routing Policy</li>
+                          <li>Number Type (did, extension, toll-free, mailbox)</li>
+                          <li>Status (available, used, reserved, aging)</li>
+                          <li>Notes, Tags, Number Range</li>
+                        </ul>
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button variant="outline" onClick={() => {
+                        setIsImportDialogOpen(false);
+                        setImportFile(null);
+                        if (fileInputRef.current) {
+                          fileInputRef.current.value = '';
+                        }
+                      }}>
+                        Cancel
+                      </Button>
+                      <Button onClick={handleCSVImport} disabled={!importFile || isImporting}>
+                        {isImporting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Importing...
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-4 h-4 mr-2" />
+                            Import
+                          </>
+                        )}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
 
-                <Button variant="outline">
+                <Button variant="outline" onClick={handleExportCSV} disabled={!phoneNumbers || phoneNumbers.length === 0}>
                   <Download className="w-4 h-4 mr-2" />
                   Export CSV
                 </Button>
