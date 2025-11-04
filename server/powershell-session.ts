@@ -17,6 +17,7 @@ export interface PowerShellSession {
   createdAt: Date;
   lastActivity: Date;
   emitter: EventEmitter;
+  usingCertificateAuth?: boolean; // If true, skip MFA detection (cert auth doesn't need MFA)
 }
 
 export interface PowerShellCredentials {
@@ -114,13 +115,13 @@ export class PowerShellSessionManager {
     console.log(`[PowerShell Session] Cert Thumbprint: ${certCredentials.certificateThumbprint.substring(0, 8)}...`);
 
     // Create the PowerShell process
-    // Note: We don't use -NonInteractive because we want to keep the session alive
-    // Certificate auth doesn't require MFA, so it won't prompt interactively
+    // Using -NonInteractive for certificate auth to prevent MFA prompts
+    // Certificate-based authentication should never require interactive input
     const pwsh = spawn("powershell.exe", [
       "-NoProfile",
       "-NoLogo",
+      "-NonInteractive", // Prevents interactive prompts (MFA, credentials, etc.)
       "-ExecutionPolicy", "Bypass",
-      // Note: NOT using -NonInteractive to keep session alive for interactive commands
     ], {
       stdio: ["pipe", "pipe", "pipe"], // stdin, stdout, stderr
       env: {
@@ -141,6 +142,7 @@ export class PowerShellSessionManager {
       createdAt: new Date(),
       lastActivity: new Date(),
       emitter,
+      usingCertificateAuth: true, // Certificate auth - no MFA needed
     };
 
     this.sessions.set(sessionId, session);
@@ -242,8 +244,8 @@ export class PowerShellSessionManager {
         }
       }
 
-      // Detect MFA prompt (for legacy user account auth)
-      if (this.isMfaPrompt(output)) {
+      // Detect MFA prompt (for legacy user account auth only - skip for certificate auth)
+      if (!session.usingCertificateAuth && this.isMfaPrompt(output)) {
         session.state = "awaiting_mfa";
         session.emitter.emit("mfa_required", { output });
       } else if (
@@ -540,11 +542,14 @@ Write-Host "POLICIES_JSON_END"
     policyName: string,
     locationId?: string
   ): boolean {
-    // Remove "Tag:" prefix if present
+    // Remove "Tag:" prefix from policy name if present
     const cleanPolicyName = policyName.replace(/^Tag:/i, "");
 
+    // Remove "tel:" prefix from phone number if present (PowerShell expects E.164 format)
+    const cleanPhoneNumber = phoneNumber.replace(/^tel:/i, "");
+
     // Build phone command
-    let phoneCommand = `Set-CsPhoneNumberAssignment -Identity '${userPrincipalName}' -PhoneNumber '${phoneNumber}' -PhoneNumberType DirectRouting`;
+    let phoneCommand = `Set-CsPhoneNumberAssignment -Identity '${userPrincipalName}' -PhoneNumber '${cleanPhoneNumber}' -PhoneNumberType DirectRouting`;
     if (locationId) {
       phoneCommand += ` -LocationId '${locationId}'`;
     }
@@ -553,31 +558,58 @@ Write-Host "POLICIES_JSON_END"
     const policyCommand = `Grant-CsOnlineVoiceRoutingPolicy -Identity '${userPrincipalName}' -PolicyName '${cleanPolicyName}'`;
 
     // Create a cleaner script that captures errors properly
+    // NOTE: We don't use 'exit' because it kills the output buffer before error messages are flushed
+    // Instead, we track success/failure with markers and let the script complete
     const combinedCommand = `
 Write-Host "=== Starting Assignment ==="
 Write-Host "User: ${userPrincipalName}"
-Write-Host "Phone: ${phoneNumber}"
+Write-Host "Phone: ${cleanPhoneNumber}"
 Write-Host "Policy: ${cleanPolicyName}"
 Write-Host ""
+
+$phoneSuccess = $false
+$policySuccess = $false
+$errorMessage = ""
 
 try {
   ${phoneCommand} -ErrorAction Stop | Out-Null
   Write-Host "SUCCESS: Phone number assigned"
+  $phoneSuccess = $true
 } catch {
-  Write-Host "ERROR: Phone assignment failed - $($_.Exception.Message)"
-  exit 1
+  $errorMessage = $_.Exception.Message
+  Write-Host "ERROR_PHONE: $errorMessage"
+  if ($_.ErrorDetails) {
+    Write-Host "ERROR_PHONE_DETAILS: $($_.ErrorDetails.Message)"
+  }
+  $phoneSuccess = $false
 }
 
-try {
-  ${policyCommand} -ErrorAction Stop | Out-Null
-  Write-Host "SUCCESS: Voice routing policy assigned"
-} catch {
-  Write-Host "ERROR: Policy assignment failed - $($_.Exception.Message)"
-  exit 1
+if ($phoneSuccess) {
+  try {
+    ${policyCommand} -ErrorAction Stop | Out-Null
+    Write-Host "SUCCESS: Voice routing policy assigned"
+    $policySuccess = $true
+  } catch {
+    $errorMessage = $_.Exception.Message
+    Write-Host "ERROR_POLICY: $errorMessage"
+    if ($_.ErrorDetails) {
+      Write-Host "ERROR_POLICY_DETAILS: $($_.ErrorDetails.Message)"
+    }
+    $policySuccess = $false
+  }
 }
 
 Write-Host ""
-Write-Host "=== Assignment Complete ==="
+if ($phoneSuccess -and $policySuccess) {
+  Write-Host "RESULT: SUCCESS"
+} else {
+  Write-Host "RESULT: FAILED"
+  if (-not $phoneSuccess) {
+    Write-Host "FAILURE_REASON: Phone assignment failed"
+  } elseif (-not $policySuccess) {
+    Write-Host "FAILURE_REASON: Policy assignment failed"
+  }
+}
 `;
 
     return this.executeTeamsCommand(sessionId, combinedCommand);

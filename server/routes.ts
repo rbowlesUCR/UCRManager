@@ -1459,8 +1459,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[Assignment] Command sent, waiting for PowerShell to complete...`);
 
-      // Wait for the command to complete (increased to 10 seconds)
-      await new Promise(resolve => setTimeout(resolve, 10000));
+      // Wait for the command to complete (event-driven with timeout)
+      // Listen for RESULT: SUCCESS or RESULT: FAILED markers
+      await new Promise<void>((resolve, reject) => {
+        const maxWaitTime = 60000; // 60 seconds max
+        const startTime = Date.now();
+
+        // Helper to filter out PowerShell script echo lines
+        const isActualOutput = (line: string) => {
+          return !line.includes(">>") && !line.includes("PS C:\\");
+        };
+
+        const checkInterval = setInterval(() => {
+          const elapsed = Date.now() - startTime;
+
+          // Filter to only actual output (not script echo)
+          const actualOutput = assignmentOutput.filter(isActualOutput);
+
+          // Check for completion markers in ACTUAL output only (not script echo)
+          const hasSuccess = actualOutput.some(line => line.includes("RESULT: SUCCESS"));
+          const hasFailed = actualOutput.some(line => line.includes("RESULT: FAILED"));
+          const hasPhoneSuccess = actualOutput.some(line => line.includes("SUCCESS: Phone number assigned"));
+          const hasPolicySuccess = actualOutput.some(line => line.includes("SUCCESS: Voice routing policy assigned"));
+          const hasPhoneError = actualOutput.some(line => line.includes("ERROR_PHONE:"));
+          const hasPolicyError = actualOutput.some(line => line.includes("ERROR_POLICY:"));
+
+          // Log every 5 seconds to avoid spam
+          if (elapsed % 5000 < 500) {
+            console.log(`[Assignment] Wait check (${elapsed}ms): Phone=${hasPhoneSuccess}, Policy=${hasPolicySuccess}, Success=${hasSuccess}, Failed=${hasFailed}`);
+          }
+
+          // Success conditions
+          if (hasSuccess || (hasPhoneSuccess && hasPolicySuccess)) {
+            clearInterval(checkInterval);
+            console.log(`[Assignment] Detected completion after ${elapsed}ms`);
+            resolve();
+            return;
+          }
+
+          // Failure conditions
+          if (hasFailed || hasPhoneError || hasPolicyError) {
+            clearInterval(checkInterval);
+            console.log(`[Assignment] Detected failure after ${elapsed}ms`);
+            resolve(); // Resolve anyway to proceed with error handling
+            return;
+          }
+
+          // Timeout
+          if (elapsed > maxWaitTime) {
+            clearInterval(checkInterval);
+            console.log(`[Assignment] Timeout after ${elapsed}ms`);
+            resolve(); // Resolve to proceed with timeout error
+            return;
+          }
+        }, 500); // Check every 500ms
+      });
 
       // Remove event listeners
       session.emitter.off("output", outputHandler);
@@ -1478,16 +1531,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check output for success/failure
       const hasPhoneSuccess = assignmentOutput.some(line => line.includes("SUCCESS: Phone number assigned"));
       const hasPolicySuccess = assignmentOutput.some(line => line.includes("SUCCESS: Voice routing policy assigned"));
-      const hasError = assignmentError || assignmentOutput.some(line => line.includes("ERROR:"));
+      const hasFailed = assignmentOutput.some(line => line.includes("RESULT: FAILED"));
+      const hasSuccess = assignmentOutput.some(line => line.includes("RESULT: SUCCESS"));
 
-      if (hasError) {
-        const errorLine = assignmentOutput.find(line => line.includes("ERROR:"));
-        const errorMsg = errorLine || assignmentError || "Assignment failed";
-        console.log(`[Assignment] FAILED: ${errorMsg}`);
-        throw new Error(`PowerShell assignment failed: ${errorMsg}`);
-      }
+      console.log(`[Assignment] Detection - hasPhoneSuccess: ${hasPhoneSuccess}, hasPolicySuccess: ${hasPolicySuccess}, hasFailed: ${hasFailed}, hasSuccess: ${hasSuccess}`);
 
-      if (!hasPhoneSuccess || !hasPolicySuccess) {
+      // Extract error messages with new markers
+      // IMPORTANT: Filter out PowerShell script echo lines (containing >> or PS C:\)
+      // We only want actual output, not the script being echoed back
+      const isActualOutput = (line: string) => {
+        return !line.includes(">>") && !line.includes("PS C:\\");
+      };
+
+      const phoneError = assignmentOutput.find(line => isActualOutput(line) && line.includes("ERROR_PHONE:"));
+      const phoneErrorDetails = assignmentOutput.find(line => isActualOutput(line) && line.includes("ERROR_PHONE_DETAILS:"));
+      const policyError = assignmentOutput.find(line => isActualOutput(line) && line.includes("ERROR_POLICY:"));
+      const policyErrorDetails = assignmentOutput.find(line => isActualOutput(line) && line.includes("ERROR_POLICY_DETAILS:"));
+      const failureReason = assignmentOutput.find(line => isActualOutput(line) && line.includes("FAILURE_REASON:"));
+
+      console.log(`[Assignment] Error detection - phoneError: ${!!phoneError}, policyError: ${!!policyError}, failureReason: ${!!failureReason}`);
+
+      // If we have both success markers, consider it successful regardless of RESULT marker
+      // (The RESULT marker may not be captured due to timing)
+      if (hasPhoneSuccess && hasPolicySuccess) {
+        console.log(`[Assignment] SUCCESS: Both phone and policy assigned successfully`);
+        // Success - continue to audit log and response
+      } else if (hasFailed || phoneError || policyError) {
+        console.log(`[Assignment] FAILED - Error details:`);
+        if (phoneError) console.log(`[Assignment]   ${phoneError}`);
+        if (phoneErrorDetails) console.log(`[Assignment]   ${phoneErrorDetails}`);
+        if (policyError) console.log(`[Assignment]   ${policyError}`);
+        if (policyErrorDetails) console.log(`[Assignment]   ${policyErrorDetails}`);
+        if (failureReason) console.log(`[Assignment]   ${failureReason}`);
+
+        const errorMsg = [phoneError, phoneErrorDetails, policyError, policyErrorDetails, failureReason]
+          .filter(Boolean)
+          .join("\n");
+
+        throw new Error(`PowerShell assignment failed:\n${errorMsg || "Unknown error"}`);
+      } else {
         console.log(`[Assignment] INCOMPLETE: Phone success: ${hasPhoneSuccess}, Policy success: ${hasPolicySuccess}`);
         throw new Error(`Assignment incomplete - Phone: ${hasPhoneSuccess}, Policy: ${hasPolicySuccess}`);
       }

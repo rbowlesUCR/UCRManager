@@ -1,9 +1,9 @@
 # PowerShell Certificate-Based Authentication - Implementation Status
 
-## 📊 Overall Progress: ~85% Complete
+## 📊 Overall Progress: ~90% Complete
 
-**Date:** November 3, 2025
-**Status:** Backend complete, Frontend UI updates in progress
+**Date:** November 4, 2025
+**Status:** Backend complete, Assignment timeout fixed, Testing in progress
 
 ---
 
@@ -54,6 +54,23 @@
 - **CUSTOMER_TENANT_POWERSHELL_SETUP.md** - Complete Azure AD setup guide
 - **POWERSHELL_QUICKSTART.md** - 5-step quick start
 - **CERTIFICATE_AUTH_MIGRATION_SUMMARY.md** - Technical migration overview
+
+### 6. Assignment Timeout Fix ✅ (Nov 4, 2025)
+- **Issue:** Event-driven wait was detecting PowerShell script echo lines (`>>`) as actual output
+- **Impact:** Assignment exited at 505ms before policy assignment completed
+- **Root Cause:** Wait function checked all output including PowerShell echo
+- **Fix:** Filter out echo lines (`>>` and `PS C:\`) before checking completion markers
+- **Result:** Assignment now waits for actual output, not script echo
+- **File:** `server/routes.ts` lines 1468-1516
+
+### 7. Debug Endpoints Documentation ✅ (Nov 4, 2025)
+- **File:** `DEBUG_ENDPOINTS.md`
+- **Features:**
+  - Complete API reference for all debug endpoints
+  - Troubleshooting workflows
+  - Security considerations
+  - Quick reference table
+  - Example curl commands
 
 ---
 
