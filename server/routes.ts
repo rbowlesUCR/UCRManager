@@ -358,6 +358,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Encrypt password for PowerShell credentials (admin only)
+  app.post("/api/admin/encrypt-password", requireAdminAuth, async (req, res) => {
+    try {
+      const { password } = req.body;
+
+      if (!password) {
+        return res.status(400).json({ error: "Password is required" });
+      }
+
+      if (typeof password !== 'string') {
+        return res.status(400).json({ error: "Password must be a string" });
+      }
+
+      // Encrypt the password using AES-256-GCM
+      const encryptedPassword = encrypt(password);
+
+      res.json({
+        success: true,
+        encryptedPassword,
+        message: "Password encrypted successfully. Use this value in the database."
+      });
+    } catch (error) {
+      console.error("Error encrypting password:", error);
+      res.status(500).json({ error: "Failed to encrypt password" });
+    }
+  });
+
   // Get operator configuration (admin only)
   app.get("/api/admin/operator-config", requireAdminAuth, async (req, res) => {
     try {
