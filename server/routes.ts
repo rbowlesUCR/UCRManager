@@ -24,6 +24,7 @@ import {
   assignPhoneNumberCert,
   grantVoiceRoutingPolicyCert,
   assignPhoneAndPolicyCert,
+  getTeamsUserCert,
   generateTeamsCertificate,
   type PowerShellCertificateCredentials,
   type PowerShellCredentials,
