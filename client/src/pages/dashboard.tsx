@@ -360,8 +360,14 @@ export default function Dashboard() {
                             setPhoneNumber(userVoiceConfig.lineUri);
                             handlePhoneNumberChange(userVoiceConfig.lineUri);
                           }
-                          if (userVoiceConfig.voiceRoutingPolicy) {
-                            setSelectedPolicy(userVoiceConfig.voiceRoutingPolicy);
+                          if (userVoiceConfig.voiceRoutingPolicy && routingPolicies) {
+                            // Find the policy by name and use its ID for the Select component
+                            const matchingPolicy = (routingPolicies as VoiceRoutingPolicy[]).find(
+                              (p) => p.name === userVoiceConfig.voiceRoutingPolicy
+                            );
+                            if (matchingPolicy) {
+                              setSelectedPolicy(matchingPolicy.id);
+                            }
                           }
                           toast({
                             title: "Form pre-filled",
