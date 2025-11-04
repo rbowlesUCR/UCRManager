@@ -1157,11 +1157,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         hasPolicy: !!userConfig.OnlineVoiceRoutingPolicy,
       });
 
+      // Extract policy name from object if it's an object
+      let policyName = null;
+      if (userConfig.OnlineVoiceRoutingPolicy) {
+        if (typeof userConfig.OnlineVoiceRoutingPolicy === 'object' && userConfig.OnlineVoiceRoutingPolicy.Name) {
+          policyName = userConfig.OnlineVoiceRoutingPolicy.Name;
+        } else if (typeof userConfig.OnlineVoiceRoutingPolicy === 'string') {
+          policyName = userConfig.OnlineVoiceRoutingPolicy;
+        }
+      }
+
       res.json({
         displayName: userConfig.DisplayName,
         userPrincipalName: userConfig.UserPrincipalName,
         lineUri: userConfig.LineURI || null,
-        voiceRoutingPolicy: userConfig.OnlineVoiceRoutingPolicy || null,
+        voiceRoutingPolicy: policyName,
         enterpriseVoiceEnabled: userConfig.EnterpriseVoiceEnabled || false,
         hostedVoiceMail: userConfig.HostedVoiceMail || false,
       });
