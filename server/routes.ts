@@ -14,7 +14,7 @@ import {
   invalidateMsalClientCache,
 } from "./auth";
 import { getGraphClient, getTeamsVoiceUsers, getVoiceRoutingPolicies, assignPhoneNumberAndPolicy, validateTenantPermissions } from "./graph";
-import { insertCustomerTenantSchema, insertAuditLogSchema, insertConfigurationProfileSchema, insertTenantPowershellCredentialsSchema, type InsertOperatorConfig, type InsertCustomerTenant } from "@shared/schema";
+import { insertCustomerTenantSchema, insertAuditLogSchema, insertConfigurationProfileSchema, insertTenantPowershellCredentialsSchema, insertPhoneNumberInventorySchema, type InsertOperatorConfig, type InsertCustomerTenant } from "@shared/schema";
 import { encrypt, decrypt } from "./encryption";
 import {
   testPowerShellConnectivity,
@@ -1058,6 +1058,246 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting profile:", error);
       res.status(500).json({ error: "Failed to delete profile" });
+    }
+  });
+
+  // ===== PHONE NUMBER INVENTORY ROUTES =====
+
+  // Get all phone numbers for a tenant
+  app.get("/api/numbers", requireOperatorAuth, async (req, res) => {
+    try {
+      const { tenantId, status, numberType } = req.query;
+
+      if (!tenantId || typeof tenantId !== "string") {
+        return res.status(400).json({ error: "Tenant ID is required" });
+      }
+
+      const filters: any = { tenantId };
+      if (status && typeof status === "string") filters.status = status;
+      if (numberType && typeof numberType === "string") filters.numberType = numberType;
+
+      const numbers = await storage.getPhoneNumbers(filters);
+      res.json(numbers);
+    } catch (error) {
+      console.error("Error fetching phone numbers:", error);
+      res.status(500).json({ error: "Failed to fetch phone numbers" });
+    }
+  });
+
+  // Create new phone number
+  app.post("/api/numbers", requireOperatorAuth, async (req, res) => {
+    try {
+      const operatorEmail = req.session.user?.email || "unknown";
+
+      const result = insertPhoneNumberInventorySchema.safeParse({
+        ...req.body,
+        createdBy: operatorEmail,
+        lastModifiedBy: operatorEmail,
+      });
+
+      if (!result.success) {
+        return res.status(400).json({ error: "Invalid phone number data", details: result.error });
+      }
+
+      // Verify tenant exists
+      const tenant = await storage.getTenant(result.data.tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      // Check for duplicate line URI within tenant
+      const existing = await storage.getPhoneNumberByLineUri(result.data.tenantId, result.data.lineUri);
+      if (existing) {
+        return res.status(409).json({ error: "Phone number already exists for this tenant" });
+      }
+
+      const phoneNumber = await storage.createPhoneNumber(result.data);
+      res.status(201).json(phoneNumber);
+    } catch (error) {
+      console.error("Error creating phone number:", error);
+      res.status(500).json({ error: "Failed to create phone number" });
+    }
+  });
+
+  // Bulk import phone numbers
+  app.post("/api/numbers/bulk-import", requireOperatorAuth, async (req, res) => {
+    try {
+      const operatorEmail = req.session.user?.email || "unknown";
+      const { tenantId, numbers } = req.body;
+
+      if (!tenantId || !Array.isArray(numbers)) {
+        return res.status(400).json({ error: "tenantId and numbers array are required" });
+      }
+
+      // Verify tenant exists
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      const results = {
+        success: [] as any[],
+        errors: [] as any[],
+      };
+
+      for (const num of numbers) {
+        try {
+          const result = insertPhoneNumberInventorySchema.safeParse({
+            ...num,
+            tenantId,
+            createdBy: operatorEmail,
+            lastModifiedBy: operatorEmail,
+          });
+
+          if (!result.success) {
+            results.errors.push({ lineUri: num.lineUri, error: "Validation failed", details: result.error });
+            continue;
+          }
+
+          // Check for duplicate
+          const existing = await storage.getPhoneNumberByLineUri(tenantId, result.data.lineUri);
+          if (existing) {
+            results.errors.push({ lineUri: result.data.lineUri, error: "Number already exists" });
+            continue;
+          }
+
+          const phoneNumber = await storage.createPhoneNumber(result.data);
+          results.success.push(phoneNumber);
+        } catch (error) {
+          results.errors.push({ lineUri: num.lineUri, error: "Failed to create" });
+        }
+      }
+
+      res.json(results);
+    } catch (error) {
+      console.error("Error bulk importing phone numbers:", error);
+      res.status(500).json({ error: "Failed to bulk import phone numbers" });
+    }
+  });
+
+  // Update phone number
+  app.patch("/api/numbers/:id", requireOperatorAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+      const operatorEmail = req.session.user?.email || "unknown";
+
+      // Verify number exists
+      const existingNumber = await storage.getPhoneNumber(id);
+      if (!existingNumber) {
+        return res.status(404).json({ error: "Phone number not found" });
+      }
+
+      // Add lastModifiedBy to updates
+      const updatesWithAudit = {
+        ...updates,
+        lastModifiedBy: operatorEmail,
+      };
+
+      const phoneNumber = await storage.updatePhoneNumber(id, updatesWithAudit);
+      res.json(phoneNumber);
+    } catch (error) {
+      console.error("Error updating phone number:", error);
+      res.status(500).json({ error: "Failed to update phone number" });
+    }
+  });
+
+  // Bulk update phone numbers
+  app.patch("/api/numbers/bulk-update", requireOperatorAuth, async (req, res) => {
+    try {
+      const { ids, updates } = req.body;
+      const operatorEmail = req.session.user?.email || "unknown";
+
+      if (!Array.isArray(ids) || !updates) {
+        return res.status(400).json({ error: "ids array and updates object are required" });
+      }
+
+      const updatesWithAudit = {
+        ...updates,
+        lastModifiedBy: operatorEmail,
+      };
+
+      const results = {
+        success: [] as any[],
+        errors: [] as any[],
+      };
+
+      for (const id of ids) {
+        try {
+          const phoneNumber = await storage.updatePhoneNumber(id, updatesWithAudit);
+          results.success.push(phoneNumber);
+        } catch (error) {
+          results.errors.push({ id, error: "Failed to update" });
+        }
+      }
+
+      res.json(results);
+    } catch (error) {
+      console.error("Error bulk updating phone numbers:", error);
+      res.status(500).json({ error: "Failed to bulk update phone numbers" });
+    }
+  });
+
+  // Delete phone number
+  app.delete("/api/numbers/:id", requireOperatorAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Verify number exists
+      const existingNumber = await storage.getPhoneNumber(id);
+      if (!existingNumber) {
+        return res.status(404).json({ error: "Phone number not found" });
+      }
+
+      await storage.deletePhoneNumber(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting phone number:", error);
+      res.status(500).json({ error: "Failed to delete phone number" });
+    }
+  });
+
+  // Find next available number in a range
+  app.post("/api/numbers/next-available", requireOperatorAuth, async (req, res) => {
+    try {
+      const { tenantId, numberRange } = req.body;
+
+      if (!tenantId || !numberRange) {
+        return res.status(400).json({ error: "tenantId and numberRange are required" });
+      }
+
+      // Get all numbers in the range
+      const numbers = await storage.getPhoneNumbersByRange(tenantId, numberRange);
+
+      // Find the next available number in the sequence
+      // This is a basic implementation - can be enhanced based on specific range patterns
+      const usedNumbers = numbers.map(n => n.lineUri);
+
+      res.json({
+        numberRange,
+        usedCount: usedNumbers.length,
+        usedNumbers,
+      });
+    } catch (error) {
+      console.error("Error finding next available number:", error);
+      res.status(500).json({ error: "Failed to find next available number" });
+    }
+  });
+
+  // Get number statistics for a tenant
+  app.get("/api/numbers/statistics", requireOperatorAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.query;
+
+      if (!tenantId || typeof tenantId !== "string") {
+        return res.status(400).json({ error: "Tenant ID is required" });
+      }
+
+      const stats = await storage.getPhoneNumberStatistics(tenantId);
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching phone number statistics:", error);
+      res.status(500).json({ error: "Failed to fetch statistics" });
     }
   });
 
