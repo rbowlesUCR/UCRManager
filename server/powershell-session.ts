@@ -1,6 +1,7 @@
 import { spawn, ChildProcessWithoutNullStreams } from "child_process";
 import { EventEmitter } from "events";
 import { decrypt } from "./encryption";
+import { PolicyType, policyTypeConfig } from "../shared/schema";
 
 export interface PowerShellCertificateCredentials {
   tenantId: string; // Azure AD tenant ID
@@ -529,6 +530,58 @@ Write-Host "POLICIES_JSON_END"
     const cleanPolicyName = policyName.replace(/^Tag:/i, "");
 
     const command = `Grant-CsOnlineVoiceRoutingPolicy -Identity "${userPrincipalName}" -PolicyName "${cleanPolicyName}"`;
+    return this.executeTeamsCommand(sessionId, command);
+  }
+
+  /**
+   * Get all policies for a specific policy type (generic method)
+   */
+  getTeamsPolicies(sessionId: string, policyType: PolicyType): boolean {
+    const config = policyTypeConfig[policyType];
+
+    // Build command based on whether the policy type supports descriptions
+    const selectProperties = config.supportsDescription
+      ? "Identity, Description"
+      : "Identity";
+
+    const command = `
+$policies = ${config.powerShellCmdGet} | Select-Object ${selectProperties}
+Write-Host "POLICIES_JSON_START"
+$policies | ConvertTo-Json -Depth 3
+Write-Host "POLICIES_JSON_END"
+`;
+    return this.executeTeamsCommand(sessionId, command);
+  }
+
+  /**
+   * Assign a policy of any type to a user (generic method)
+   */
+  assignTeamsPolicy(
+    sessionId: string,
+    userPrincipalName: string,
+    policyType: PolicyType,
+    policyName: string
+  ): boolean {
+    const config = policyTypeConfig[policyType];
+
+    // Remove "Tag:" prefix if present (PowerShell cmdlet doesn't need it)
+    const cleanPolicyName = policyName.replace(/^Tag:/i, "");
+
+    const command = `${config.powerShellCmdGrant} -Identity "${userPrincipalName}" -PolicyName "${cleanPolicyName}"`;
+    return this.executeTeamsCommand(sessionId, command);
+  }
+
+  /**
+   * Get the current policy assigned to a user for a specific policy type
+   */
+  getUserPolicy(
+    sessionId: string,
+    userPrincipalName: string,
+    policyType: PolicyType
+  ): boolean {
+    const config = policyTypeConfig[policyType];
+
+    const command = `Get-CsOnlineUser -Identity "${userPrincipalName}" | Select-Object ${config.userPropertyName}`;
     return this.executeTeamsCommand(sessionId, command);
   }
 
