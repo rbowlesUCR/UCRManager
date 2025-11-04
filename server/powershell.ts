@@ -3,6 +3,7 @@ import { writeFileSync, unlinkSync, mkdtempSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { decrypt } from "./encryption";
+import { PolicyType, policyTypeConfig } from "../shared/schema";
 
 export interface PowerShellResult {
   success: boolean;
@@ -529,6 +530,28 @@ $policies | Select-Object Identity, Description, OnlinePstnUsages | ConvertTo-Js
 }
 
 /**
+ * Get policies for any policy type using certificate auth (generic method)
+ */
+export async function getTeamsPoliciesCert(
+  credentials: PowerShellCertificateCredentials,
+  policyType: PolicyType
+): Promise<PowerShellResult> {
+  const config = policyTypeConfig[policyType];
+
+  // Build select properties based on whether policy supports descriptions
+  const selectProperties = config.supportsDescription
+    ? "Identity, Description"
+    : "Identity";
+
+  const script = `
+# Get all ${config.displayName}
+$policies = ${config.powerShellCmdGet}
+$policies | Select-Object ${selectProperties} | ConvertTo-Json -Compress
+`;
+  return executePowerShellWithCertificate(credentials, script);
+}
+
+/**
  * Assign phone number to user using certificate auth
  */
 export async function assignPhoneNumberCert(
@@ -566,6 +589,28 @@ Grant-CsOnlineVoiceRoutingPolicy \`
     -PolicyName "${policyName}"
 
 Write-Output "Successfully assigned voice routing policy '${policyName}' to ${userPrincipalName}"
+`;
+  return executePowerShellWithCertificate(credentials, script);
+}
+
+/**
+ * Grant any policy type to user using certificate auth (generic method)
+ */
+export async function grantTeamsPolicyCert(
+  credentials: PowerShellCertificateCredentials,
+  userPrincipalName: string,
+  policyType: PolicyType,
+  policyName: string
+): Promise<PowerShellResult> {
+  const config = policyTypeConfig[policyType];
+
+  const script = `
+# Grant ${config.displayName}
+${config.powerShellCmdGrant} \`
+    -Identity "${userPrincipalName}" \`
+    -PolicyName "${policyName}"
+
+Write-Output "Successfully assigned ${config.displayName.toLowerCase()} '${policyName}' to ${userPrincipalName}"
 `;
   return executePowerShellWithCertificate(credentials, script);
 }
