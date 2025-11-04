@@ -38,6 +38,7 @@ import { AdminLayout } from "@/components/admin-layout";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { AdminPowerShellCredentials } from "@/components/admin-powershell-credentials";
 import type { CustomerTenant } from "@shared/schema";
 
 interface PermissionValidationResult {
@@ -47,21 +48,6 @@ interface PermissionValidationResult {
   errorCode?: string;
 }
 
-interface PowerShellCredentials {
-  id: string;
-  tenantId: string;
-  username: string;
-  password: string;
-  description: string | null;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface PowerShellCredentialsResponse {
-  exists: boolean;
-  credentials?: PowerShellCredentials;
-}
 
 export default function AdminCustomerTenants() {
   const { toast } = useToast();
@@ -71,14 +57,9 @@ export default function AdminCustomerTenants() {
   const [showSecret, setShowSecret] = useState(false);
   const [validatingTenant, setValidatingTenant] = useState<CustomerTenant | null>(null);
   const [validationResults, setValidationResults] = useState<PermissionValidationResult[]>([]);
-  
+
   // PowerShell credentials state
   const [psConfigTenant, setPsConfigTenant] = useState<CustomerTenant | null>(null);
-  const [psUsername, setPsUsername] = useState("");
-  const [psPassword, setPsPassword] = useState("");
-  const [psDescription, setPsDescription] = useState("");
-  const [showPsPassword, setShowPsPassword] = useState(false);
-  const [testOutput, setTestOutput] = useState("");
 
   // Form state
   const [formData, setFormData] = useState({
@@ -187,61 +168,6 @@ export default function AdminCustomerTenants() {
     },
   });
 
-  const { data: psCredentials, refetch: refetchPsCredentials } = useQuery<PowerShellCredentialsResponse>({
-    queryKey: ["/api/admin/tenants", psConfigTenant?.id, "powershell-credentials"],
-    enabled: !!psConfigTenant,
-  });
-
-  const updatePsCredentialsMutation = useMutation({
-    mutationFn: async ({ tenantId, data }: { tenantId: string; data: { username: string; encryptedPassword: string; description: string; isActive: boolean } }) => {
-      const res = await apiRequest("PUT", `/api/admin/tenants/${tenantId}/powershell-credentials`, data);
-      return await res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/tenants", psConfigTenant?.id, "powershell-credentials"] });
-      toast({
-        title: "PowerShell credentials saved",
-        description: "Teams PowerShell credentials have been updated successfully",
-      });
-      refetchPsCredentials();
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Failed to save credentials",
-        description: error.message || "Failed to update PowerShell credentials",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const testPsConnectionMutation = useMutation({
-    mutationFn: async (tenantId: string) => {
-      const res = await apiRequest("POST", `/api/admin/tenants/${tenantId}/powershell/test-connection`, {});
-      return await res.json();
-    },
-    onSuccess: (data) => {
-      setTestOutput(data.output || "");
-      if (data.success) {
-        toast({
-          title: "Connection test successful",
-          description: "PowerShell connection to Microsoft Teams is working",
-        });
-      } else {
-        toast({
-          title: "Connection test failed",
-          description: data.error || "Failed to connect to Microsoft Teams PowerShell",
-          variant: "destructive",
-        });
-      }
-    },
-    onError: (error: any) => {
-      toast({
-        title: "Test failed",
-        description: error.message || "Failed to test PowerShell connection",
-        variant: "destructive",
-      });
-    },
-  });
 
   const resetForm = () => {
     setFormData({
@@ -282,54 +208,7 @@ export default function AdminCustomerTenants() {
 
   const handleConfigurePs = (tenant: CustomerTenant) => {
     setPsConfigTenant(tenant);
-    // Don't clear fields here - let useEffect handle populating them when data loads
-    setShowPsPassword(false);
-    setTestOutput("");
   };
-
-  const handlePsCredentialsSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!psUsername) {
-      toast({
-        title: "Validation error",
-        description: "Username is required",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!psConfigTenant) return;
-
-    updatePsCredentialsMutation.mutate({
-      tenantId: psConfigTenant.id,
-      data: {
-        username: psUsername,
-        encryptedPassword: psPassword,
-        description: psDescription,
-        isActive: true,
-      },
-    });
-  };
-
-  const handleTestConnection = () => {
-    if (!psConfigTenant) return;
-    setTestOutput("");
-    testPsConnectionMutation.mutate(psConfigTenant.id);
-  };
-
-  useEffect(() => {
-    if (psCredentials && psCredentials.exists && psCredentials.credentials) {
-      setPsUsername(psCredentials.credentials.username);
-      setPsPassword(psCredentials.credentials.password);
-      setPsDescription(psCredentials.credentials.description || "");
-    } else if (psCredentials && !psCredentials.exists) {
-      // No credentials exist for this tenant - clear the form
-      setPsUsername("");
-      setPsPassword("");
-      setPsDescription("");
-    }
-  }, [psCredentials]);
 
   return (
     <AdminLayout>
@@ -651,153 +530,29 @@ export default function AdminCustomerTenants() {
         </Dialog>
 
         {/* PowerShell Credentials Dialog */}
-        <Dialog open={!!psConfigTenant} onOpenChange={(open) => {
-          if (!open) {
-            setPsConfigTenant(null);
-            setPsUsername("");
-            setPsPassword("");
-            setPsDescription("");
-            setShowPsPassword(false);
-            setTestOutput("");
-          }
-        }}>
-          <DialogContent className="max-w-2xl">
+        <Dialog open={!!psConfigTenant} onOpenChange={(open) => !open && setPsConfigTenant(null)}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <Terminal className="w-5 h-5" />
                 PowerShell Credentials - {psConfigTenant?.tenantName}
               </DialogTitle>
               <DialogDescription>
-                Configure Microsoft Teams PowerShell credentials for this tenant
+                Configure Microsoft Teams PowerShell credentials for this tenant. Operators will use these credentials with MFA.
               </DialogDescription>
             </DialogHeader>
 
-            <Alert>
-              <AlertCircle className="h-4 w-4" />
-              <AlertDescription className="space-y-2">
-                <div>
-                  <strong>Required Admin Permissions:</strong>
-                </div>
-                <ul className="text-xs space-y-1 ml-4 list-disc">
-                  <li><strong>Teams Administrator</strong> or <strong>Global Administrator</strong> role required</li>
-                  <li>Account must support basic authentication (modern auth with MFA may not work)</li>
-                  <li>MicrosoftTeams PowerShell module must be installed on the server</li>
-                </ul>
-                <div className="text-xs mt-2">
-                  <strong>PowerShell Operations:</strong> Phone number assignment (<code className="text-xs">Set-CsPhoneNumberAssignment</code>), 
-                  policy listing (<code className="text-xs">Get-CsOnlineVoiceRoutingPolicy</code>), and policy assignment.
-                </div>
-                <div className="text-xs mt-2 text-amber-600 dark:text-amber-500">
-                  <strong>Note:</strong> Test connection may fail if MFA is required on the account or if the MicrosoftTeams module isn't installed. 
-                  PowerShell operations will still work if credentials are valid.
-                </div>
-              </AlertDescription>
-            </Alert>
-
-            <form onSubmit={handlePsCredentialsSubmit} className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="ps-username">User Principal Name *</Label>
-                <Input
-                  id="ps-username"
-                  type="text"
-                  value={psUsername}
-                  onChange={(e) => setPsUsername(e.target.value)}
-                  placeholder="admin@tenant.onmicrosoft.com"
-                  data-testid="input-ps-username"
-                  required
-                />
-                <p className="text-xs text-muted-foreground">
-                  The UPN of a service account with Teams admin permissions
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="ps-password">Password</Label>
-                <div className="relative">
-                  <Input
-                    id="ps-password"
-                    type={showPsPassword ? "text" : "password"}
-                    value={psPassword}
-                    onChange={(e) => setPsPassword(e.target.value)}
-                    placeholder="Enter password or leave unchanged"
-                    data-testid="input-ps-password"
-                    className="pr-10"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-0 top-0 h-full px-3"
-                    onClick={() => setShowPsPassword(!showPsPassword)}
-                    data-testid="button-toggle-ps-password"
-                  >
-                    {showPsPassword ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Password is encrypted before storage. Leave as masked (****************) to keep existing password.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="ps-description">Description (Optional)</Label>
-                <Textarea
-                  id="ps-description"
-                  value={psDescription}
-                  onChange={(e) => setPsDescription(e.target.value)}
-                  placeholder="e.g., Service account for Teams PowerShell operations"
-                  data-testid="input-ps-description"
-                  rows={2}
-                />
-              </div>
-
-              <div className="flex gap-3">
-                <Button
-                  type="submit"
-                  disabled={updatePsCredentialsMutation.isPending}
-                  data-testid="button-save-ps-credentials"
-                >
-                  {updatePsCredentialsMutation.isPending ? "Saving..." : "Save Credentials"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleTestConnection}
-                  disabled={testPsConnectionMutation.isPending || !psCredentials?.exists}
-                  data-testid="button-test-ps-connection"
-                >
-                  {testPsConnectionMutation.isPending && (
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2" />
-                  )}
-                  Test Connection
-                </Button>
-              </div>
-
-              {testOutput && (
-                <div className="mt-4 space-y-2">
-                  <Label>Test Output</Label>
-                  <div className="bg-muted p-3 rounded-md font-mono text-xs whitespace-pre-wrap max-h-48 overflow-y-auto" data-testid="text-test-output">
-                    {testOutput}
-                  </div>
-                </div>
-              )}
-            </form>
+            {psConfigTenant && (
+              <AdminPowerShellCredentials
+                tenantId={psConfigTenant.id}
+                tenantName={psConfigTenant.tenantName}
+              />
+            )}
 
             <DialogFooter>
               <Button
                 variant="outline"
-                onClick={() => {
-                  setPsConfigTenant(null);
-                  setPsUsername("");
-                  setPsPassword("");
-                  setPsDescription("");
-                  setShowPsPassword(false);
-                  setTestOutput("");
-                }}
+                onClick={() => setPsConfigTenant(null)}
                 data-testid="button-close-ps-dialog"
               >
                 Close

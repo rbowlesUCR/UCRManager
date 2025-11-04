@@ -7,11 +7,12 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Save, X, Users, Phone, Upload } from "lucide-react";
+import { Loader2, Save, X, Users, Phone, Upload, Terminal } from "lucide-react";
 import { TenantSelector } from "@/components/tenant-selector";
 import { UserSearchCombobox } from "@/components/user-search-combobox";
 import { BulkAssignmentDialog } from "@/components/bulk-assignment-dialog";
 import { ConfigurationProfiles } from "@/components/configuration-profiles";
+import { PowerShellMfaModal } from "@/components/powershell-mfa-modal";
 import type { TeamsUser, VoiceRoutingPolicy, CustomerTenant, ConfigurationProfile } from "@shared/schema";
 
 export default function Dashboard() {
@@ -22,6 +23,8 @@ export default function Dashboard() {
   const [selectedPolicy, setSelectedPolicy] = useState("");
   const [phoneValidation, setPhoneValidation] = useState<{ isValid: boolean; message: string } | null>(null);
   const [showBulkDialog, setShowBulkDialog] = useState(false);
+  const [showPowerShellModal, setShowPowerShellModal] = useState(false);
+  const [powershellPolicies, setPowershellPolicies] = useState<VoiceRoutingPolicy[] | null>(null);
 
   // Fetch Teams users when tenant is selected
   const { data: teamsUsers, isLoading: isLoadingUsers } = useQuery({
@@ -39,8 +42,8 @@ export default function Dashboard() {
     },
   });
 
-  // Fetch voice routing policies when tenant is selected
-  const { data: routingPolicies, isLoading: isLoadingPolicies } = useQuery({
+  // Fetch voice routing policies when tenant is selected (fallback to Graph API)
+  const { data: graphPolicies, isLoading: isLoadingPolicies } = useQuery({
     queryKey: ["/api/teams/routing-policies", selectedTenant?.id],
     enabled: !!selectedTenant,
     queryFn: async () => {
@@ -54,6 +57,9 @@ export default function Dashboard() {
       return await res.json();
     },
   });
+
+  // Use PowerShell policies if available, otherwise use Graph API policies
+  const routingPolicies = powershellPolicies || graphPolicies;
 
   const assignVoiceMutation = useMutation({
     mutationFn: async (data: {
@@ -222,15 +228,26 @@ export default function Dashboard() {
                   Select a Teams voice-enabled user and configure their phone settings
                 </CardDescription>
               </div>
-              <Button
-                variant="outline"
-                onClick={() => setShowBulkDialog(true)}
-                className="h-10"
-                data-testid="button-bulk-assign"
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                Bulk Assign
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowPowerShellModal(true)}
+                  className="h-10"
+                  data-testid="button-powershell"
+                >
+                  <Terminal className="w-4 h-4 mr-2" />
+                  PowerShell
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowBulkDialog(true)}
+                  className="h-10"
+                  data-testid="button-bulk-assign"
+                >
+                  <Upload className="w-4 h-4 mr-2" />
+                  Bulk Assign
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -376,6 +393,29 @@ export default function Dashboard() {
         onOpenChange={setShowBulkDialog}
         selectedTenant={selectedTenant}
       />
+
+      {/* PowerShell MFA Modal */}
+      {selectedTenant && (
+        <PowerShellMfaModal
+          isOpen={showPowerShellModal}
+          onClose={() => setShowPowerShellModal(false)}
+          tenantId={selectedTenant.id}
+          tenantName={selectedTenant.tenantName}
+          onSuccess={() => {
+            toast({
+              title: "PowerShell Connected",
+              description: "Successfully connected to Microsoft Teams PowerShell",
+            });
+          }}
+          onPoliciesRetrieved={(policies) => {
+            setPowershellPolicies(policies);
+            toast({
+              title: "Policies Retrieved",
+              description: `Retrieved ${policies.length} voice routing policies from PowerShell`,
+            });
+          }}
+        />
+      )}
 
       {/* Empty State */}
       {!selectedTenant && (

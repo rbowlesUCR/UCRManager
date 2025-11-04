@@ -3,7 +3,6 @@ import fs from "fs";
 import path from "path";
 import { createServer as createViteServer, createLogger } from "vite";
 import { type Server } from "http";
-import viteConfig from "../vite.config";
 import { nanoid } from "nanoid";
 
 const viteLogger = createLogger();
@@ -20,6 +19,10 @@ export function log(message: string, source = "express") {
 }
 
 export async function setupVite(app: Express, server: Server) {
+  // Dynamically import vite config to avoid bundling issues
+  const viteConfigModule = await import("../vite.config");
+  const viteConfig = viteConfigModule.default;
+
   const serverOptions = {
     middlewareMode: true,
     hmr: { server },
@@ -46,8 +49,7 @@ export async function setupVite(app: Express, server: Server) {
 
     try {
       const clientTemplate = path.resolve(
-        import.meta.dirname,
-        "..",
+        process.cwd(),
         "client",
         "index.html",
       );
@@ -68,7 +70,10 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
-  const distPath = path.resolve(import.meta.dirname, "public");
+  // Support both bundled (dist/index.js) and unbundled (server/vite.ts) paths
+  const distPath = fs.existsSync(path.resolve(process.cwd(), "dist", "public"))
+    ? path.resolve(process.cwd(), "dist", "public")
+    : path.resolve(process.cwd(), "public");
 
   if (!fs.existsSync(distPath)) {
     throw new Error(
@@ -76,10 +81,30 @@ export function serveStatic(app: Express) {
     );
   }
 
-  app.use(express.static(distPath));
+  // Create static file handler
+  const staticHandler = express.static(distPath);
 
-  // fall through to index.html if the file doesn't exist
-  app.use("*", (_req, res) => {
+  // Serve static files, but NEVER for API/WS routes marked by early interceptor
+  app.use((req, res, next) => {
+    const isApiRequest = (req as any).__isApiRequest;
+
+    if (isApiRequest) {
+      console.log(`[STATIC] Skipping static handler for marked API request: ${req.path}`);
+      return next();
+    }
+
+    staticHandler(req, res, next);
+  });
+
+  // Fall through to index.html, but NEVER for API/WS routes
+  app.use((req, res, next) => {
+    const isApiRequest = (req as any).__isApiRequest;
+
+    if (isApiRequest) {
+      console.log(`[STATIC] Skipping index.html for marked API request: ${req.path}`);
+      return next();
+    }
+
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }

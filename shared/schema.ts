@@ -81,13 +81,17 @@ export const operatorUsers = pgTable("operator_users", {
 });
 
 // Tenant PowerShell credentials table - stores tenant-specific credentials for Teams PowerShell authentication
-// Each customer tenant can have its own PowerShell credentials (optional)
+// Supports both certificate-based (recommended) and legacy user account authentication
 export const tenantPowershellCredentials = pgTable("tenant_powershell_credentials", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   tenantId: varchar("tenant_id").notNull().references(() => customerTenants.id, { onDelete: "cascade" }),
-  username: text("username").notNull(), // User principal name for Teams PowerShell
-  encryptedPassword: text("encrypted_password").notNull(), // Encrypted using AES-256-GCM
-  description: text("description"), // Optional description (e.g., "Service account for Teams PowerShell")
+  // Certificate-based authentication (recommended)
+  appId: text("app_id"), // Azure AD Application (Client) ID for certificate-based auth
+  certificateThumbprint: text("certificate_thumbprint"), // Thumbprint of certificate in Windows cert store
+  // Legacy user account authentication (deprecated but kept for backward compatibility)
+  usernameDeprecated: text("username_deprecated").notNull().default(''), // Deprecated: old username field
+  encryptedPasswordDeprecated: text("encrypted_password_deprecated").notNull().default(''), // Deprecated: old encrypted password field
+  description: text("description"), // Optional description
   isActive: boolean("is_active").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),

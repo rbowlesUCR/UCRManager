@@ -7,8 +7,9 @@ import { Label } from "@/components/ui/label";
 import { AdminLayout } from "@/components/admin-layout";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Eye, EyeOff, Key, AlertCircle, CheckCircle2, Cloud } from "lucide-react";
+import { Eye, EyeOff, Key, AlertCircle, CheckCircle2, Cloud, Bug } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Switch } from "@/components/ui/switch";
 
 interface OperatorConfig {
   id: string;
@@ -43,6 +44,11 @@ export default function AdminSettings() {
   // Fetch operator config
   const { data: operatorConfig, isLoading: isLoadingConfig } = useQuery<OperatorConfig>({
     queryKey: ["/api/admin/operator-config"],
+  });
+
+  // Fetch debug status
+  const { data: debugStatus } = useQuery<{ enabled: boolean }>({
+    queryKey: ["/api/admin/debug/status"],
   });
 
   // Update state when config is loaded
@@ -128,6 +134,33 @@ export default function AdminSettings() {
     onError: (error: Error) => {
       toast({
         title: "Failed to update configuration",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const toggleDebugMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/admin/debug/toggle", {});
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to toggle debug mode");
+      }
+      return await response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: data.enabled ? "Debug mode enabled" : "Debug mode disabled",
+        description: data.enabled
+          ? "Debug API endpoints are now available"
+          : "Debug API endpoints have been disabled",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/debug/status"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to toggle debug mode",
         description: error.message,
         variant: "destructive",
       });
@@ -611,6 +644,55 @@ export default function AdminSettings() {
                     {updateOperatorConfigMutation.isPending ? "Saving..." : "Save Configuration"}
                   </Button>
                 </form>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Debug Mode Settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Bug className="h-5 w-5" />
+                Debug Mode
+              </CardTitle>
+              <CardDescription>
+                Enable or disable debug API endpoints for troubleshooting PowerShell and certificate authentication
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between space-x-4">
+                <div className="flex-1 space-y-1">
+                  <Label htmlFor="debug-mode" className="text-base font-medium">
+                    Enable Debug APIs
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    When enabled, debug endpoints are available at <code className="text-xs bg-muted px-1 py-0.5 rounded">/api/debug/*</code>
+                  </p>
+                </div>
+                <Switch
+                  id="debug-mode"
+                  checked={debugStatus?.enabled ?? false}
+                  onCheckedChange={() => toggleDebugMutation.mutate()}
+                  disabled={toggleDebugMutation.isPending}
+                />
+              </div>
+
+              {debugStatus?.enabled && (
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    <strong>Debug mode is active.</strong> The following endpoints are available:
+                    <ul className="mt-2 space-y-1 text-xs">
+                      <li><code className="bg-muted px-1 py-0.5 rounded">GET /api/debug/status</code> - Check debug status</li>
+                      <li><code className="bg-muted px-1 py-0.5 rounded">GET /api/debug/powershell/credentials/:tenantId</code> - View credentials</li>
+                      <li><code className="bg-muted px-1 py-0.5 rounded">POST /api/debug/powershell/test-cert-connection/:tenantId</code> - Test certificate connection</li>
+                      <li><code className="bg-muted px-1 py-0.5 rounded">POST /api/debug/powershell/get-policies/:tenantId</code> - Get voice policies</li>
+                      <li><code className="bg-muted px-1 py-0.5 rounded">POST /api/debug/powershell/execute/:tenantId</code> - Execute PowerShell</li>
+                      <li><code className="bg-muted px-1 py-0.5 rounded">POST /api/debug/powershell/check-certificate/:tenantId</code> - Check certificate</li>
+                      <li><code className="bg-muted px-1 py-0.5 rounded">GET /api/debug/powershell/list-certificates</code> - List all certificates</li>
+                    </ul>
+                  </AlertDescription>
+                </Alert>
               )}
             </CardContent>
           </Card>

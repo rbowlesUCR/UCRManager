@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -67,7 +68,7 @@ export default function AdminDocumentation() {
       </div>
 
       <Tabs defaultValue="operator" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="operator" data-testid="tab-operator-docs">
             Operator Tenant Setup
           </TabsTrigger>
@@ -76,6 +77,9 @@ export default function AdminDocumentation() {
           </TabsTrigger>
           <TabsTrigger value="powershell" data-testid="tab-powershell-docs">
             PowerShell Setup
+          </TabsTrigger>
+          <TabsTrigger value="guides" data-testid="tab-full-guides">
+            Full Guides
           </TabsTrigger>
         </TabsList>
 
@@ -336,10 +340,200 @@ export default function AdminDocumentation() {
             <CardHeader>
               <CardTitle>PowerShell for Teams Administration</CardTitle>
               <CardDescription>
-                Configure per-tenant PowerShell credentials for operations not available via Graph API
+                Two authentication methods available: Certificate-based (recommended) or User Account
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {/* Authentication Methods Overview */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-green-50 dark:bg-green-950 border-2 border-green-300 dark:border-green-700 rounded-lg p-4">
+                  <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
+                    <span className="text-lg">✅</span> Certificate-Based Authentication (Recommended)
+                  </h4>
+                  <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground ml-2">
+                    <li><strong>No user credentials stored</strong></li>
+                    <li><strong>No MFA prompts</strong></li>
+                    <li>Fully automated operations</li>
+                    <li>Microsoft best practice</li>
+                    <li>Instant revocation via Azure AD</li>
+                  </ul>
+                  <a href="#server-certificate-setup" className="text-sm text-primary hover:underline mt-2 block">
+                    → Setup Guide Below
+                  </a>
+                </div>
+                <div className="bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-700 rounded-lg p-4">
+                  <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
+                    <span className="text-lg">⚠️</span> User Account Authentication (Alternative)
+                  </h4>
+                  <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground ml-2">
+                    <li>Requires service account credentials</li>
+                    <li>MFA must be disabled</li>
+                    <li>Passwords stored (encrypted)</li>
+                    <li>Legacy method</li>
+                  </ul>
+                  <a href="#user-account-setup" className="text-sm text-primary hover:underline mt-2 block">
+                    → Setup Guide Below
+                  </a>
+                </div>
+              </div>
+
+              {/* Certificate-Based Authentication Section */}
+              <div id="server-certificate-setup" className="scroll-mt-20">
+                <h3 className="text-xl font-bold mb-4 border-b pb-2">🔐 Certificate-Based Authentication (Recommended)</h3>
+
+                <div className="bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-950 dark:to-green-950 border-2 border-blue-300 dark:border-blue-700 rounded-lg p-5 mb-4">
+                  <h4 className="font-semibold text-base mb-3 flex items-center gap-2">
+                    📖 Complete Setup Documentation
+                  </h4>
+                  <p className="text-sm mb-4">
+                    Comprehensive step-by-step guides with troubleshooting, security best practices, and certificate management are available in your project repository at:
+                    <code className="block bg-white/50 dark:bg-black/30 px-3 py-2 rounded mt-2 text-xs">
+                      C:\inetpub\wwwroot\UCRManager\
+                    </code>
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-blue-200 dark:border-blue-700">
+                      <div className="font-mono text-xs font-bold mb-1 text-blue-600 dark:text-blue-400">
+                        SERVER_CERTIFICATE_SETUP.md
+                      </div>
+                      <div className="text-xs text-muted-foreground mb-2">
+                        Complete wizard for generating certificates on your Windows Server with verification steps
+                      </div>
+                      <div className="text-xs font-semibold">~4,000 words • 15 min read</div>
+                    </div>
+                    <div className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-blue-200 dark:border-blue-700">
+                      <div className="font-mono text-xs font-bold mb-1 text-blue-600 dark:text-blue-400">
+                        CUSTOMER_TENANT_POWERSHELL_SETUP.md
+                      </div>
+                      <div className="text-xs text-muted-foreground mb-2">
+                        Azure AD configuration, certificate upload, and permissions setup with troubleshooting
+                      </div>
+                      <div className="text-xs font-semibold">~4,500 words • 18 min read</div>
+                    </div>
+                    <div className="bg-white dark:bg-gray-800 p-3 rounded-lg border border-green-200 dark:border-green-700">
+                      <div className="font-mono text-xs font-bold mb-1 text-green-600 dark:text-green-400">
+                        POWERSHELL_QUICKSTART.md
+                      </div>
+                      <div className="text-xs text-muted-foreground mb-2">
+                        Condensed 5-step setup guide for experienced admins
+                      </div>
+                      <div className="text-xs font-semibold">~800 words • 5 min read</div>
+                    </div>
+                  </div>
+                  <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-700 rounded">
+                    <p className="text-xs">
+                      <strong>💡 Tip:</strong> Open these files in your favorite text editor or markdown viewer for the full experience. They include detailed command references, certificate tracking templates, and comprehensive troubleshooting sections.
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-lg font-semibold mb-3">Overview</h4>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Certificate-based authentication uses Azure AD app registrations with self-signed certificates stored in the Windows Certificate Store.
+                    This is Microsoft's recommended approach for automated PowerShell operations.
+                  </p>
+                  <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg p-3 mb-4">
+                    <p className="text-sm font-semibold mb-2">✅ Benefits:</p>
+                    <ul className="list-disc list-inside space-y-1 text-sm ml-2">
+                      <li><strong>Zero credentials stored</strong> - Only certificate thumbprint (public info)</li>
+                      <li><strong>No MFA needed</strong> - Fully automated authentication</li>
+                      <li><strong>Private key never leaves server</strong> - Stored in Windows Certificate Store</li>
+                      <li><strong>Easy certificate rotation</strong> - Generate new, upload to Azure, update thumbprint</li>
+                      <li><strong>Instant revocation</strong> - Remove from Azure AD to disable</li>
+                    </ul>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="text-lg font-semibold mb-3">Quick Setup (15 minutes)</h4>
+                  <div className="space-y-4">
+                    <div>
+                      <h5 className="font-semibold text-sm mb-2">Step 1: Generate Certificate on Server</h5>
+                      <p className="text-sm text-muted-foreground mb-2">
+                        Run the provided PowerShell script as Administrator on your Windows Server:
+                      </p>
+                      <div className="bg-muted p-3 rounded-lg font-mono text-sm">
+                        cd C:\inetpub\wwwroot\UCRManager\scripts<br/>
+                        .\New-TeamsPowerShellCertificate.ps1 -TenantName "CustomerName"
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        This generates a 2048-bit RSA certificate and exports a .cer file for Azure upload.
+                      </p>
+                    </div>
+
+                    <div id="customer-tenant-setup" className="scroll-mt-20">
+                      <h5 className="font-semibold text-sm mb-2">Step 2: Upload Certificate to Azure AD (Customer Tenant)</h5>
+                      <ol className="list-decimal list-inside space-y-2 text-sm">
+                        <li>Sign in to <a href="https://portal.azure.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">Azure Portal <ExternalLink className="h-3 w-3" /></a> (customer tenant)</li>
+                        <li>Navigate to <strong>App registrations</strong> → Your app → <strong>Certificates & secrets</strong></li>
+                        <li>Click <strong>Upload certificate</strong></li>
+                        <li>Select the <code className="bg-muted px-1 rounded">.cer</code> file from Step 1</li>
+                        <li>Click <strong>Add</strong></li>
+                      </ol>
+                      <p className="text-xs text-muted-foreground mt-3">
+                        💡 <strong>Note:</strong> You must perform this step in the <strong>customer's Azure AD tenant</strong>, not your operator tenant. The certificate will be associated with the app registration in the customer's Azure AD.
+                      </p>
+                    </div>
+
+                    <div>
+                      <h5 className="font-semibold text-sm mb-2">Step 3: Grant API Permissions</h5>
+                      <p className="text-sm text-muted-foreground mb-2">
+                        In your Azure AD app registration, ensure these <strong>Application permissions</strong> are granted:
+                      </p>
+                      <div className="space-y-2">
+                        <div className="bg-muted p-2 rounded text-sm">
+                          <code>User.Read.All</code> - Read user information
+                        </div>
+                        <div className="bg-muted p-2 rounded text-sm">
+                          <code>Organization.Read.All</code> - Read organization info
+                        </div>
+                      </div>
+                      <p className="text-sm text-amber-600 dark:text-amber-400 mt-2">
+                        ⚠️ Click <strong>"Grant admin consent"</strong> after adding permissions!
+                      </p>
+                    </div>
+
+                    <div>
+                      <h5 className="font-semibold text-sm mb-2">Step 4: Configure in Teams Voice Manager</h5>
+                      <ol className="list-decimal list-inside space-y-2 text-sm">
+                        <li>Go to <strong>Admin Panel</strong> → <strong>Customer Tenants</strong></li>
+                        <li>Select your tenant and click <strong>PowerShell Settings</strong></li>
+                        <li>Click <strong>Add PowerShell Certificate Credentials</strong></li>
+                        <li>Enter:
+                          <ul className="list-disc list-inside ml-6 mt-2 space-y-1">
+                            <li><strong>Application ID</strong>: From Azure App Registration</li>
+                            <li><strong>Certificate Thumbprint</strong>: From certificate generation output</li>
+                            <li><strong>Description</strong>: Optional note</li>
+                          </ul>
+                        </li>
+                        <li>Click <strong>Add Credential</strong></li>
+                        <li>Click <strong>Test Connection</strong> to verify!</li>
+                      </ol>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                  <h4 className="font-semibold text-sm mb-2">🔧 Certificate Management</h4>
+                  <p className="text-sm mb-2"><strong>View certificates on server:</strong></p>
+                  <div className="bg-muted p-2 rounded-lg font-mono text-xs mb-3">
+                    Get-ChildItem Cert:\LocalMachine\My | Where-Object &#123; $_.Subject -like "*TeamsPowerShell*" &#125;
+                  </div>
+                  <p className="text-sm mb-2"><strong>Certificate renewal (every 2 years):</strong></p>
+                  <ol className="list-decimal list-inside space-y-1 text-sm ml-2">
+                    <li>Generate new certificate with same TenantName</li>
+                    <li>Upload new .cer to Azure AD (old cert still works)</li>
+                    <li>Update thumbprint in Teams Voice Manager</li>
+                    <li>Test connection</li>
+                    <li>Remove old certificate from Azure AD</li>
+                  </ol>
+                </div>
+              </div>
+
+              {/* User Account Authentication Section */}
+              <div id="user-account-setup" className="scroll-mt-20">
+                <h3 className="text-xl font-bold mb-4 border-b pb-2">👤 User Account Authentication (Alternative)</h3>
               {/* Replit Platform Limitation Warning */}
               <div className="bg-red-50 dark:bg-red-950 border-2 border-red-300 dark:border-red-700 rounded-lg p-4">
                 <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
@@ -574,11 +768,68 @@ export default function AdminDocumentation() {
                   <strong>💡 Important:</strong> If the "Test Connection" button fails but your credentials are valid, the PowerShell operations will still work when operators use them. The test may fail due to MFA or module installation, but actual operations bypass these issues.
                 </p>
               </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="guides" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Complete Documentation Guides</CardTitle>
+              <CardDescription>
+                Full setup documentation with detailed instructions, troubleshooting, and best practices
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <DocumentationViewer filename="POWERSHELL_QUICKSTART.md" title="Quick Start Guide (5 minutes)" />
+              <DocumentationViewer filename="SERVER_CERTIFICATE_SETUP.md" title="Server Certificate Setup (Detailed)" />
+              <DocumentationViewer filename="CUSTOMER_TENANT_POWERSHELL_SETUP.md" title="Customer Tenant Azure AD Setup" />
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
       </div>
     </AdminLayout>
+  );
+}
+
+function DocumentationViewer({ filename, title }: { filename: string; title: string }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const { data, isLoading } = useQuery({
+    queryKey: [`/api/admin/documentation/${filename}`],
+    enabled: isExpanded,
+  });
+
+  return (
+    <div className="border rounded-lg">
+      <div
+        className="flex items-center justify-between p-4 cursor-pointer hover:bg-muted/50"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <div>
+          <h3 className="font-semibold">{title}</h3>
+          <p className="text-xs text-muted-foreground">{filename}</p>
+        </div>
+        <Button variant="outline" size="sm">
+          {isExpanded ? "Hide" : "View"} Documentation
+        </Button>
+      </div>
+      {isExpanded && (
+        <div className="border-t p-4">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : data?.content ? (
+            <pre className="whitespace-pre-wrap text-sm font-mono bg-muted p-4 rounded-lg overflow-x-auto max-h-[600px] overflow-y-auto">
+              {data.content}
+            </pre>
+          ) : (
+            <p className="text-sm text-muted-foreground">Unable to load documentation</p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

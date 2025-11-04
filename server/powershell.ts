@@ -13,7 +13,13 @@ export interface PowerShellResult {
 
 export interface PowerShellCredentials {
   username: string;
-  password: string; // Decrypted password
+  password: string; // Decrypted password (deprecated - use certificate auth)
+}
+
+export interface PowerShellCertificateCredentials {
+  tenantId: string; // Azure tenant ID
+  appId: string; // Application (client) ID
+  certificateThumbprint: string; // Certificate thumbprint from Windows cert store
 }
 
 /**
@@ -114,7 +120,8 @@ $credential = New-Object System.Management.Automation.PSCredential($username, $p
       }
 
       // Execute PowerShell with the script file (production deployment)
-      const pwsh = spawn("pwsh", [
+      // Use powershell.exe (Windows PowerShell 5.1) since pwsh (PowerShell 7) is not installed
+      const pwsh = spawn("powershell.exe", [
         "-NoProfile",
         "-NonInteractive",
         "-NoLogo",
@@ -430,9 +437,9 @@ Connect-MicrosoftTeams -Credential $credential -ErrorAction Stop
 try {
     # Assign voice routing policy
     Grant-CsOnlineVoiceRoutingPolicy -Identity "${userPrincipalName}" -PolicyName "${policyName}" -ErrorAction Stop
-    
+
     Write-Output "Successfully assigned voice routing policy '${policyName}' to ${userPrincipalName}"
-    
+
     Disconnect-MicrosoftTeams
     exit 0
 } catch {
@@ -443,4 +450,307 @@ try {
 `;
 
   return executePowerShellScript(script, credentials, 60000);
+}
+
+// ============================================================================
+// CERTIFICATE-BASED AUTHENTICATION FUNCTIONS (RECOMMENDED)
+// No user credentials or MFA required - uses app registration with certificate
+// ============================================================================
+
+/**
+ * Build PowerShell connection script using certificate auth
+ */
+function buildCertificateAuthScript(credentials: PowerShellCertificateCredentials, userScript: string): string {
+  return `
+# Import MicrosoftTeams module
+Import-Module MicrosoftTeams -ErrorAction Stop
+
+# Connect to Microsoft Teams using certificate authentication
+Connect-MicrosoftTeams \`
+    -ApplicationId "${credentials.appId}" \`
+    -CertificateThumbprint "${credentials.certificateThumbprint}" \`
+    -TenantId "${credentials.tenantId}" \`
+    -ErrorAction Stop | Out-Null
+
+try {
+    # Execute user commands
+    ${userScript}
+
+    # Disconnect
+    Disconnect-MicrosoftTeams -Confirm:\$false -ErrorAction SilentlyContinue
+    exit 0
+} catch {
+    Write-Error \$_.Exception.Message
+    Disconnect-MicrosoftTeams -Confirm:\$false -ErrorAction SilentlyContinue
+    exit 1
+}
+`;
+}
+
+/**
+ * Execute PowerShell script with certificate-based authentication
+ */
+export async function executePowerShellWithCertificate(
+  credentials: PowerShellCertificateCredentials,
+  script: string,
+  timeoutMs: number = 120000
+): Promise<PowerShellResult> {
+  const fullScript = buildCertificateAuthScript(credentials, script);
+  return executePowerShellScript(fullScript, undefined, timeoutMs);
+}
+
+/**
+ * Test certificate-based connection to Microsoft Teams
+ */
+export async function testCertificateConnection(
+  credentials: PowerShellCertificateCredentials
+): Promise<PowerShellResult> {
+  const script = `
+# Get tenant information to verify connection
+$tenant = Get-CsTenant
+Write-Output "Successfully connected to tenant: $($tenant.DisplayName)"
+Write-Output "Tenant ID: $($tenant.TenantId)"
+`;
+  return executePowerShellWithCertificate(credentials, script, 30000);
+}
+
+/**
+ * Get all voice routing policies using certificate auth
+ */
+export async function getVoiceRoutingPoliciesCert(
+  credentials: PowerShellCertificateCredentials
+): Promise<PowerShellResult> {
+  const script = `
+# Get all voice routing policies
+$policies = Get-CsOnlineVoiceRoutingPolicy
+$policies | Select-Object Identity, Description, OnlinePstnUsages | ConvertTo-Json -Compress
+`;
+  return executePowerShellWithCertificate(credentials, script);
+}
+
+/**
+ * Assign phone number to user using certificate auth
+ */
+export async function assignPhoneNumberCert(
+  credentials: PowerShellCertificateCredentials,
+  userPrincipalName: string,
+  phoneNumber: string,
+  locationId?: string
+): Promise<PowerShellResult> {
+  const locationParam = locationId ? `-LocationId "${locationId}"` : "";
+
+  const script = `
+# Assign phone number
+Set-CsPhoneNumberAssignment \`
+    -Identity "${userPrincipalName}" \`
+    -PhoneNumber "${phoneNumber}" \`
+    -PhoneNumberType DirectRouting ${locationParam}
+
+Write-Output "Successfully assigned phone number ${phoneNumber} to ${userPrincipalName}"
+`;
+  return executePowerShellWithCertificate(credentials, script);
+}
+
+/**
+ * Grant voice routing policy to user using certificate auth
+ */
+export async function grantVoiceRoutingPolicyCert(
+  credentials: PowerShellCertificateCredentials,
+  userPrincipalName: string,
+  policyName: string
+): Promise<PowerShellResult> {
+  const script = `
+# Grant voice routing policy
+Grant-CsOnlineVoiceRoutingPolicy \`
+    -Identity "${userPrincipalName}" \`
+    -PolicyName "${policyName}"
+
+Write-Output "Successfully assigned voice routing policy '${policyName}' to ${userPrincipalName}"
+`;
+  return executePowerShellWithCertificate(credentials, script);
+}
+
+/**
+ * Assign phone number AND voice routing policy in one operation (certificate auth)
+ */
+export async function assignPhoneAndPolicyCert(
+  credentials: PowerShellCertificateCredentials,
+  userPrincipalName: string,
+  phoneNumber: string,
+  policyName: string,
+  locationId?: string
+): Promise<PowerShellResult> {
+  const locationParam = locationId ? `-LocationId "${locationId}"` : "";
+
+  const script = `
+# Assign phone number
+Set-CsPhoneNumberAssignment \`
+    -Identity "${userPrincipalName}" \`
+    -PhoneNumber "${phoneNumber}" \`
+    -PhoneNumberType DirectRouting ${locationParam}
+
+Write-Output "✓ Assigned phone number ${phoneNumber}"
+
+# Grant voice routing policy
+Grant-CsOnlineVoiceRoutingPolicy \`
+    -Identity "${userPrincipalName}" \`
+    -PolicyName "${policyName}"
+
+Write-Output "✓ Assigned voice routing policy '${policyName}'"
+Write-Output ""
+Write-Output "Successfully configured ${userPrincipalName}"
+`;
+  return executePowerShellWithCertificate(credentials, script);
+}
+
+/**
+ * Get Teams user details using certificate auth
+ */
+export async function getTeamsUserCert(
+  credentials: PowerShellCertificateCredentials,
+  userPrincipalName: string
+): Promise<PowerShellResult> {
+  const script = `
+# Get Teams user details
+$user = Get-CsOnlineUser -Identity "${userPrincipalName}"
+$result = @{
+    DisplayName = $user.DisplayName
+    UserPrincipalName = $user.UserPrincipalName
+    LineURI = $user.LineURI
+    OnlineVoiceRoutingPolicy = $user.OnlineVoiceRoutingPolicy
+    EnterpriseVoiceEnabled = $user.EnterpriseVoiceEnabled
+    HostedVoiceMail = $user.HostedVoiceMail
+}
+$result | ConvertTo-Json -Compress
+`;
+  return executePowerShellWithCertificate(credentials, script);
+}
+
+/**
+ * Get phone number assignment for a user using certificate auth
+ */
+export async function getPhoneNumberAssignmentCert(
+  credentials: PowerShellCertificateCredentials,
+  userPrincipalName: string
+): Promise<PowerShellResult> {
+  const script = `
+# Get phone number assignment
+$assignment = Get-CsPhoneNumberAssignment -AssignedPstnTargetId "${userPrincipalName}"
+$assignment | Select-Object TelephoneNumber, NumberType, LocationId, CivicAddressId | ConvertTo-Json -Compress
+`;
+  return executePowerShellWithCertificate(credentials, script);
+}
+
+/**
+ * Get all voice-enabled users using certificate auth
+ */
+export async function getVoiceEnabledUsersCert(
+  credentials: PowerShellCertificateCredentials
+): Promise<PowerShellResult> {
+  const script = `
+# Get all voice-enabled users
+$users = Get-CsOnlineUser -Filter {EnterpriseVoiceEnabled -eq \$true} | \`
+    Select-Object DisplayName, UserPrincipalName, LineURI, OnlineVoiceRoutingPolicy
+$users | ConvertTo-Json -Compress
+`;
+  return executePowerShellWithCertificate(credentials, script);
+}
+
+/**
+ * Remove phone number assignment using certificate auth
+ */
+export async function removePhoneNumberCert(
+  credentials: PowerShellCertificateCredentials,
+  userPrincipalName: string
+): Promise<PowerShellResult> {
+  const script = `
+# Remove phone number assignment
+Remove-CsPhoneNumberAssignment \`
+    -Identity "${userPrincipalName}" \`
+    -RemoveAll
+
+Write-Output "Successfully removed phone number from ${userPrincipalName}"
+`;
+  return executePowerShellWithCertificate(credentials, script);
+}
+
+/**
+ * Generate a new PowerShell certificate for Teams authentication
+ * Returns certificate details including thumbprint and file path
+ */
+export interface CertificateGenerationResult extends PowerShellResult {
+  certificateThumbprint?: string;
+  certificatePath?: string;
+  certificateSubject?: string;
+  expirationDate?: string;
+}
+
+export async function generateTeamsCertificate(
+  tenantName: string,
+  validityYears: number = 2
+): Promise<CertificateGenerationResult> {
+  const script = `
+# Certificate generation script
+\$TenantName = "${tenantName.replace(/[^a-zA-Z0-9-]/g, '')}"
+\$ValidityYears = ${validityYears}
+
+# Define certificate properties
+\$subject = "CN=TeamsPowerShell-\$TenantName"
+\$certStoreLocation = "Cert:\\LocalMachine\\My"
+\$outputPath = "C:\\inetpub\\wwwroot\\UCRManager\\temp"
+
+# Create output directory if it doesn't exist
+if (-not (Test-Path \$outputPath)) {
+    New-Item -ItemType Directory -Path \$outputPath -Force | Out-Null
+}
+
+# Generate self-signed certificate
+try {
+    \$cert = New-SelfSignedCertificate -Subject \$subject -CertStoreLocation \$certStoreLocation -KeyExportPolicy Exportable -KeySpec Signature -KeyLength 2048 -KeyAlgorithm RSA -HashAlgorithm SHA256 -NotAfter (Get-Date).AddYears(\$ValidityYears)
+
+    # Export public key (.cer file)
+    \$cerPath = Join-Path \$outputPath "TeamsPowerShell-\$TenantName.cer"
+    Export-Certificate -Cert \$cert -FilePath \$cerPath -Force | Out-Null
+
+    # Return certificate details as JSON
+    \$result = @{
+        Success = \$true
+        Thumbprint = \$cert.Thumbprint
+        Subject = \$cert.Subject
+        CerFilePath = \$cerPath
+        ExpirationDate = \$cert.NotAfter.ToString("yyyy-MM-dd HH:mm:ss")
+        Message = "Certificate generated successfully"
+    }
+
+    \$result | ConvertTo-Json -Compress
+} catch {
+    \$errorResult = @{
+        Success = \$false
+        Error = \$_.Exception.Message
+    }
+    \$errorResult | ConvertTo-Json -Compress
+}
+`;
+
+  const result = await executePowerShellScript(script, undefined, 30000);
+
+  // Parse JSON output if successful
+  if (result.success && result.output) {
+    try {
+      const certData = JSON.parse(result.output);
+      if (certData.Success) {
+        return {
+          ...result,
+          certificateThumbprint: certData.Thumbprint,
+          certificatePath: certData.CerFilePath,
+          certificateSubject: certData.Subject,
+          expirationDate: certData.ExpirationDate,
+        };
+      }
+    } catch (parseError) {
+      // If parsing fails, return raw result
+    }
+  }
+
+  return result;
 }

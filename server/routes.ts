@@ -19,12 +19,16 @@ import { encrypt, decrypt } from "./encryption";
 import {
   testPowerShellConnectivity,
   testTeamsModuleInstallation,
-  connectToTeamsPowerShell,
-  assignPhoneNumberToUser,
-  getVoiceRoutingPolicies as getPowerShellPolicies,
-  assignVoiceRoutingPolicy as assignPowerShellVoiceRoutingPolicy,
+  testCertificateConnection,
+  getVoiceRoutingPoliciesCert,
+  assignPhoneNumberCert,
+  grantVoiceRoutingPolicyCert,
+  assignPhoneAndPolicyCert,
+  generateTeamsCertificate,
+  type PowerShellCertificateCredentials,
   type PowerShellCredentials,
 } from "./powershell";
+import { powershellSessionManager } from "./powershell-session";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Middleware
@@ -108,15 +112,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const token = createJWT(session);
 
+      console.log("[AUTH DEBUG] Setting cookie for user:", email);
+      console.log("[AUTH DEBUG] Cookie settings:", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        maxAge: 24 * 60 * 60 * 1000,
+        sameSite: "lax",
+        nodeEnv: process.env.NODE_ENV
+      });
+
       res.cookie("operatorToken", token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         maxAge: 24 * 60 * 60 * 1000, // 24 hours
         sameSite: "lax",
+        path: "/",
       });
 
-      console.log("Authentication successful. Redirecting to dashboard for user:", email);
-      res.redirect("/dashboard");
+      console.log("[AUTH DEBUG] Cookie set. Token length:", token.length);
+      console.log("[AUTH DEBUG] Headers before redirect:", res.getHeaders());
+      console.log("[AUTH DEBUG] Redirecting to /dashboard for user:", email);
+      res.redirect(303, "/dashboard");
     } catch (error) {
       console.error("Error during OAuth callback:", error);
       console.error("Error stack:", error instanceof Error ? error.stack : "No stack trace");
@@ -135,6 +151,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Get current operator session (validates role from database)
   app.get("/api/auth/session", async (req, res) => {
+    console.log("[AUTH DEBUG] Session check - All cookies:", Object.keys(req.cookies || {}));
+    console.log("[AUTH DEBUG] Session check - Has operatorToken:", !!req.cookies?.operatorToken);
+
+    const token = req.cookies?.operatorToken;
+
+    if (!token) {
+      console.log("[AUTH DEBUG] No operatorToken cookie found. Cookies received:", req.cookies);
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+
+    console.log("[AUTH DEBUG] Token found, verifying JWT...");
+
+    const session = verifyJWT(token);
+    if (!session) {
+      console.log("[AUTH DEBUG] JWT verification failed");
+      // Clear invalid cookie
+      res.clearCookie("operatorToken");
+      return res.status(401).json({ error: "Invalid or expired session" });
+    }
+
+    console.log("[AUTH DEBUG] JWT verified. User ID:", session.id, "Email:", session.email);
+
+    // Verify the user's role from the database matches the JWT
+    // This prevents privilege escalation via stale or modified JWTs
+    const operatorUser = await storage.getOperatorUser(session.id);
+    if (!operatorUser) {
+      console.log("[AUTH DEBUG] User not found in database. User ID:", session.id);
+      // User not found in database - clear cookie
+      res.clearCookie("operatorToken");
+      return res.status(401).json({ error: "User not found" });
+    }
+
+    console.log("[AUTH DEBUG] User found in database. Active:", operatorUser.isActive, "Role:", operatorUser.role);
+
+    if (!operatorUser.isActive) {
+      console.log("[AUTH DEBUG] User is inactive");
+      // User has been deactivated - clear cookie
+      res.clearCookie("operatorToken");
+      return res.status(403).json({ error: "Account deactivated" });
+    }
+
+    console.log("[AUTH DEBUG] Session validated successfully. Returning session for:", session.email);
+
+    // Return session with current role from database (not JWT)
+    res.json({
+      ...session,
+      role: operatorUser.role, // Use database role, not JWT role
+    });
+  });
+
+  // Test endpoint to debug routing
+  app.get("/api/test-debug", (req, res) => {
+    console.log("DEBUG ENDPOINT HIT - This means routes are working!");
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.setHeader('Content-Type', 'application/json');
+    res.json({
+      message: "Debug endpoint working",
+      timestamp: new Date().toISOString(),
+      path: req.path,
+      method: req.method
+    });
+  });
+
+  // Generate WebSocket JWT token for authenticated users
+  app.get("/api/auth/ws-token", async (req, res) => {
     const token = req.cookies?.operatorToken;
 
     if (!token) {
@@ -143,31 +224,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     const session = verifyJWT(token);
     if (!session) {
-      // Clear invalid cookie
-      res.clearCookie("operatorToken");
       return res.status(401).json({ error: "Invalid or expired session" });
     }
 
-    // Verify the user's role from the database matches the JWT
-    // This prevents privilege escalation via stale or modified JWTs
-    const operatorUser = await storage.getOperatorUser(session.id);
-    if (!operatorUser) {
-      // User not found in database - clear cookie
-      res.clearCookie("operatorToken");
-      return res.status(401).json({ error: "User not found" });
-    }
-
-    if (!operatorUser.isActive) {
-      // User has been deactivated - clear cookie
-      res.clearCookie("operatorToken");
-      return res.status(403).json({ error: "Account deactivated" });
-    }
-
-    // Return session with current role from database (not JWT)
-    res.json({
-      ...session,
-      role: operatorUser.role, // Use database role, not JWT role
+    // Generate a short-lived JWT token for WebSocket authentication
+    const wsToken = createJWT({
+      email: session.email,
+      id: session.id,
+      role: session.role,
     });
+
+    // Prevent caching of JWT tokens
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.json({ token: wsToken });
   });
 
   // Operator logout
@@ -365,23 +436,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ===== TENANT POWERSHELL CREDENTIALS MANAGEMENT ROUTES (ADMIN ONLY) =====
 
-  // Get tenant PowerShell credentials (admin only, returns masked password)
+  // Get tenant PowerShell credentials (admin only)
   app.get("/api/admin/tenants/:tenantId/powershell-credentials", requireAdminAuth, async (req, res) => {
     try {
       const { tenantId } = req.params;
-      const credentials = await storage.getTenantPowershellCredentials(tenantId);
-      
-      if (!credentials) {
-        return res.json({ exists: false });
+      const credentialsArray = await storage.getTenantPowershellCredentials(tenantId);
+
+      if (!credentialsArray || credentialsArray.length === 0) {
+        return res.json({ exists: false, credentials: [] });
       }
+
+      // Return all credentials with certificate info (thumbprint is public, safe to return)
+      const credentialsResponse = credentialsArray.map(cred => ({
+        id: cred.id,
+        appId: cred.appId,
+        certificateThumbprint: cred.certificateThumbprint,
+        description: cred.description,
+        isActive: cred.isActive,
+        createdAt: cred.createdAt,
+        updatedAt: cred.updatedAt,
+      }));
 
       res.json({
         exists: true,
-        credentials: {
-          username: credentials.username,
-          password: "****************", // Always return masked password
-          description: credentials.description,
-        },
+        credentials: credentialsResponse,
       });
     } catch (error) {
       console.error("Error fetching tenant PowerShell credentials:", error);
@@ -389,96 +467,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Create or update tenant PowerShell credentials (admin only)
-  app.put("/api/admin/tenants/:tenantId/powershell-credentials", requireAdminAuth, async (req, res) => {
-    try {
-      const { tenantId } = req.params;
-      
-      // Verify tenant exists
-      const tenant = await storage.getTenant(tenantId);
-      if (!tenant) {
-        return res.status(404).json({ error: "Tenant not found" });
-      }
-
-      const validation = insertTenantPowershellCredentialsSchema.omit({ tenantId: true }).safeParse(req.body);
-      
-      if (!validation.success) {
-        return res.status(400).json({ error: "Invalid credentials data", details: validation.error });
-      }
-
-      const { username, encryptedPassword, description, isActive } = validation.data;
-
-      // Validate that password is not empty if provided
-      if (encryptedPassword && encryptedPassword.trim() === "") {
-        return res.status(400).json({ error: "Password cannot be empty" });
-      }
-
-      // If password is the masked value, get existing password
-      let finalEncryptedPassword = encryptedPassword;
-      
-      if (encryptedPassword === "****************") {
-        const existing = await storage.getTenantPowershellCredentials(tenantId);
-        if (!existing) {
-          return res.status(400).json({ error: "Cannot update non-existent credentials with masked password" });
-        }
-        finalEncryptedPassword = existing.encryptedPassword;
-      } else if (encryptedPassword) {
-        // Encrypt the new password
-        finalEncryptedPassword = encrypt(encryptedPassword);
-      }
-
-      const credentials = await storage.createOrUpdateTenantPowershellCredentials({
-        tenantId,
-        username,
-        encryptedPassword: finalEncryptedPassword,
-        description,
-        isActive,
-      });
-
-      res.json({
-        success: true,
-        message: "PowerShell credentials saved successfully",
-      });
-    } catch (error) {
-      console.error("Error updating tenant PowerShell credentials:", error);
-      res.status(500).json({ error: "Failed to update PowerShell credentials" });
-    }
-  });
-
-  // Delete tenant PowerShell credentials (admin only)
-  app.delete("/api/admin/tenants/:tenantId/powershell-credentials", requireAdminAuth, async (req, res) => {
-    try {
-      const { tenantId } = req.params;
-      const success = await storage.deleteTenantPowershellCredentials(tenantId);
-      
-      if (!success) {
-        return res.status(404).json({ error: "PowerShell credentials not found for this tenant" });
-      }
-
-      res.json({ success: true, message: "PowerShell credentials deleted successfully" });
-    } catch (error) {
-      console.error("Error deleting tenant PowerShell credentials:", error);
-      res.status(500).json({ error: "Failed to delete PowerShell credentials" });
-    }
-  });
-
-  // Test tenant PowerShell connectivity (admin only)
+  // Test tenant PowerShell certificate authentication (admin only)
   app.post("/api/admin/tenants/:tenantId/powershell/test-connection", requireAdminAuth, async (req, res) => {
     try {
       const { tenantId } = req.params;
-      const credentials = await storage.getTenantPowershellCredentials(tenantId);
-      
-      if (!credentials) {
-        return res.status(404).json({ error: "PowerShell credentials not configured for this tenant" });
+
+      // Get customer tenant info for tenant ID
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Customer tenant not found" });
       }
 
-      const decryptedPassword = decrypt(credentials.encryptedPassword);
-      const psCredentials: PowerShellCredentials = {
-        username: credentials.username,
-        password: decryptedPassword,
+      // Get PowerShell credentials
+      const credentialsArray = await storage.getTenantPowershellCredentials(tenantId);
+      const credentials = credentialsArray.find(cred => cred.isActive);
+
+      if (!credentials) {
+        return res.status(404).json({ error: "No active PowerShell credentials configured for this tenant" });
+      }
+
+      // Build certificate credentials
+      const certCredentials: PowerShellCertificateCredentials = {
+        tenantId: tenant.tenantId, // Azure AD tenant ID
+        appId: credentials.appId,
+        certificateThumbprint: credentials.certificateThumbprint,
       };
 
-      const result = await connectToTeamsPowerShell(psCredentials);
+      // Test the connection
+      const result = await testCertificateConnection(certCredentials);
 
       res.json({
         success: result.success,
@@ -523,6 +539,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error testing Teams module:", error);
       res.status(500).json({ error: "Failed to test Teams module" });
+    }
+  });
+
+  // Generate PowerShell certificate (admin only)
+  app.post("/api/admin/powershell/generate-certificate", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantName, validityYears } = req.body;
+
+      if (!tenantName) {
+        return res.status(400).json({ error: "tenantName is required" });
+      }
+
+      const result = await generateTeamsCertificate(
+        tenantName,
+        validityYears || 2
+      );
+
+      res.json({
+        success: result.success,
+        certificateThumbprint: result.certificateThumbprint,
+        certificatePath: result.certificatePath,
+        certificateSubject: result.certificateSubject,
+        expirationDate: result.expirationDate,
+        output: result.output,
+        error: result.error,
+      });
+    } catch (error) {
+      console.error("Error generating certificate:", error);
+      res.status(500).json({ error: "Failed to generate certificate" });
+    }
+  });
+
+  // Download certificate file (admin only)
+  app.get("/api/admin/powershell/download-certificate/:filename", requireAdminAuth, async (req, res) => {
+    try {
+      const { filename } = req.params;
+
+      // Security: Only allow downloading .cer files with TeamsPowerShell prefix
+      if (!filename.startsWith("TeamsPowerShell-") || !filename.endsWith(".cer")) {
+        return res.status(400).json({ error: "Invalid certificate filename" });
+      }
+
+      const filePath = `C:\\inetpub\\wwwroot\\UCRManager\\temp\\${filename}`;
+
+      // Send file for download
+      res.download(filePath, filename, (err) => {
+        if (err) {
+          console.error("Error downloading certificate:", err);
+          if (!res.headersSent) {
+            res.status(404).json({ error: "Certificate file not found" });
+          }
+        }
+      });
+    } catch (error) {
+      console.error("Error serving certificate file:", error);
+      res.status(500).json({ error: "Failed to download certificate" });
     }
   });
 
@@ -1240,8 +1312,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Assign phone number and routing policy
+  // Assign phone number and routing policy via PowerShell
   app.post("/api/teams/assign-voice", requireOperatorAuth, async (req, res) => {
+    let sessionId: string | null = null;
+
     try {
       const { tenantId, userId, phoneNumber, routingPolicy } = req.body;
 
@@ -1254,37 +1328,179 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Tenant not found" });
       }
 
+      // Check for PowerShell credentials (certificate-based auth)
+      const psCredentialsList = await storage.getTenantPowershellCredentials(tenantId);
+      if (!psCredentialsList || psCredentialsList.length === 0) {
+        return res.status(400).json({
+          error: "PowerShell credentials not configured for this tenant. Phone number assignment requires PowerShell."
+        });
+      }
+
+      // Use the first (primary) credential
+      const psCredentials = psCredentialsList[0];
+      console.log(`[Assignment] Using PowerShell credentials ID: ${psCredentials.id}`);
+
+      // Decrypt the app registration secret for Graph API (used for getting user info)
       if (!tenant.appRegistrationId || !tenant.appRegistrationSecret) {
         return res.status(400).json({ error: "Tenant app registration not configured" });
       }
 
-      // Decrypt the app registration secret
       const decryptedSecret = decrypt(tenant.appRegistrationSecret);
-
       const graphClient = await getGraphClient(
         tenant.tenantId,
         tenant.appRegistrationId,
         decryptedSecret
       );
 
-      // Get user details for audit log and capture previous values
+      // Get user details for audit log
       const user = await graphClient.api(`/users/${userId}`).get();
-      const previousPhoneNumber = user.businessPhones?.[0] || user.mobilePhone || null;
-      
-      // Get current voice policy (if available)
-      let previousRoutingPolicy = null;
-      try {
-        // Try to get current voice routing policy (may not be available)
-        const voicePolicy = await graphClient.api(`/users/${userId}/onlinevoiceroutingpolicy`).get();
-        previousRoutingPolicy = voicePolicy?.name || null;
-      } catch {
-        // Voice policy may not be available
+      const userPrincipalName = user.userPrincipalName;
+
+      console.log(`[Assignment] Creating PowerShell session for ${userPrincipalName}`);
+
+      // Create a PowerShell session for this assignment
+      // Note: tenant.tenantId is the Azure AD tenant ID, tenantId (param) is our internal ID
+      sessionId = await powershellSessionManager.createSessionWithCertificate(
+        tenantId,
+        req.user.email,
+        {
+          tenantId: tenant.tenantId, // Azure AD tenant ID from customer_tenants table
+          appId: psCredentials.appId,
+          certificateThumbprint: psCredentials.certificateThumbprint
+        }
+      );
+
+      console.log(`[Assignment] PowerShell session created: ${sessionId}`);
+
+      // Wait for connection (max 30 seconds)
+      const session = powershellSessionManager.getSession(sessionId);
+      if (!session) {
+        throw new Error("Failed to create PowerShell session");
       }
 
-      // Assign phone number and policy
-      await assignPhoneNumberAndPolicy(graphClient, userId, phoneNumber, routingPolicy);
+      console.log(`[Assignment] Waiting for PowerShell to connect. Current state: ${session.state}`);
 
-      // Create audit log with previous values for rollback
+      // Wait for the session to connect
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          console.log(`[Assignment] PowerShell connection timeout. Final state: ${session.state}`);
+          reject(new Error("PowerShell connection timeout (30 seconds)"));
+        }, 30000);
+
+        let checkCount = 0;
+        const checkConnection = () => {
+          checkCount++;
+          if (checkCount % 10 === 0) {
+            console.log(`[Assignment] Still waiting for connection... State: ${session.state} (${checkCount * 0.5}s elapsed)`);
+          }
+
+          if (session.state === "connected") {
+            console.log(`[Assignment] PowerShell connected after ${checkCount * 0.5}s`);
+            clearTimeout(timeout);
+            resolve();
+          } else if (session.state === "error") {
+            console.log(`[Assignment] PowerShell connection error after ${checkCount * 0.5}s`);
+            clearTimeout(timeout);
+            reject(new Error("PowerShell connection failed"));
+          } else {
+            setTimeout(checkConnection, 500);
+          }
+        };
+
+        checkConnection();
+      });
+
+      console.log(`[Assignment] PowerShell connected successfully, sending assignment command for ${userPrincipalName}`);
+      console.log(`[Assignment] Phone: ${phoneNumber}, Policy: ${routingPolicy}`);
+
+      // Capture output from the assignment - aggregate into lines
+      let assignmentOutput: string[] = [];
+      let assignmentError: string | null = null;
+      let outputBuffer = "";
+
+      const outputHandler = ({ output }: { output: string }) => {
+        outputBuffer += output;
+
+        // Check for complete lines (ending with newline)
+        const lines = outputBuffer.split(/\r?\n/);
+
+        // Keep the last incomplete line in the buffer
+        outputBuffer = lines.pop() || "";
+
+        // Process complete lines
+        for (const line of lines) {
+          if (line.trim()) {
+            console.log(`[Assignment] PS: ${line}`);
+            assignmentOutput.push(line);
+          }
+        }
+      };
+
+      const errorHandler = ({ error }: { error: string }) => {
+        console.log(`[Assignment] PS Error: ${error}`);
+        assignmentError = error;
+      };
+
+      session.emitter.on("output", outputHandler);
+      session.emitter.on("error", errorHandler);
+
+      // Assign phone number and policy using PowerShell
+      console.log(`[Assignment] Sending assignment command to PowerShell...`);
+      const success = powershellSessionManager.assignPhoneNumberAndPolicy(
+        sessionId,
+        userPrincipalName,
+        phoneNumber,
+        routingPolicy
+      );
+
+      if (!success) {
+        throw new Error("Failed to send assignment command to PowerShell");
+      }
+
+      console.log(`[Assignment] Command sent, waiting for PowerShell to complete...`);
+
+      // Wait for the command to complete (increased to 10 seconds)
+      await new Promise(resolve => setTimeout(resolve, 10000));
+
+      // Remove event listeners
+      session.emitter.off("output", outputHandler);
+      session.emitter.off("error", errorHandler);
+
+      // Flush any remaining buffer
+      if (outputBuffer.trim()) {
+        console.log(`[Assignment] PS: ${outputBuffer}`);
+        assignmentOutput.push(outputBuffer);
+      }
+
+      console.log(`[Assignment] Assignment process completed for ${userPrincipalName}`);
+      console.log(`[Assignment] Captured ${assignmentOutput.length} output lines`);
+
+      // Check output for success/failure
+      const hasPhoneSuccess = assignmentOutput.some(line => line.includes("SUCCESS: Phone number assigned"));
+      const hasPolicySuccess = assignmentOutput.some(line => line.includes("SUCCESS: Voice routing policy assigned"));
+      const hasError = assignmentError || assignmentOutput.some(line => line.includes("ERROR:"));
+
+      if (hasError) {
+        const errorLine = assignmentOutput.find(line => line.includes("ERROR:"));
+        const errorMsg = errorLine || assignmentError || "Assignment failed";
+        console.log(`[Assignment] FAILED: ${errorMsg}`);
+        throw new Error(`PowerShell assignment failed: ${errorMsg}`);
+      }
+
+      if (!hasPhoneSuccess || !hasPolicySuccess) {
+        console.log(`[Assignment] INCOMPLETE: Phone success: ${hasPhoneSuccess}, Policy success: ${hasPolicySuccess}`);
+        throw new Error(`Assignment incomplete - Phone: ${hasPhoneSuccess}, Policy: ${hasPolicySuccess}`);
+      }
+
+      console.log(`[Assignment] SUCCESS: Both phone and policy assigned successfully`);
+
+      // Close the temporary PowerShell session
+      if (sessionId) {
+        powershellSessionManager.closeSession(sessionId);
+        sessionId = null;
+      }
+
+      // Create audit log
       const auditLog = await storage.createAuditLog({
         operatorEmail: req.user.email,
         operatorName: req.user.displayName,
@@ -1294,17 +1510,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         targetUserName: user.displayName,
         targetUserId: userId,
         changeType: "voice_configuration_updated",
-        changeDescription: `Assigned phone number ${phoneNumber} and routing policy ${routingPolicy}`,
+        changeDescription: `Assigned phone number ${phoneNumber} and routing policy ${routingPolicy} via PowerShell`,
         phoneNumber,
         routingPolicy,
-        previousPhoneNumber,
-        previousRoutingPolicy,
         status: "success",
       });
 
       res.json({ success: true, auditLog });
     } catch (error) {
       console.error("Error assigning voice configuration:", error);
+
+      // Clean up PowerShell session on error
+      if (sessionId) {
+        try {
+          powershellSessionManager.closeSession(sessionId);
+        } catch (cleanupError) {
+          console.error("Error cleaning up PowerShell session:", cleanupError);
+        }
+      }
 
       // Create failure audit log
       try {
@@ -1337,35 +1560,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ===== POWERSHELL-BASED TEAMS OPERATIONS =====
 
-  // Assign phone number using PowerShell (operator auth required)
+  // Assign phone number using PowerShell certificate auth (operator auth required)
   app.post("/api/powershell/assign-phone", requireOperatorAuth, async (req, res) => {
     try {
-      const { tenantId, userPrincipalName, phoneNumber } = req.body;
+      const { tenantId, userPrincipalName, phoneNumber, locationId } = req.body;
 
       if (!tenantId || !userPrincipalName || !phoneNumber) {
         return res.status(400).json({ error: "Missing required fields: tenantId, userPrincipalName, phoneNumber" });
       }
 
-      // Get tenant-specific PowerShell credentials
-      const psCredentials = await storage.getTenantPowershellCredentials(tenantId);
-      if (!psCredentials) {
-        return res.status(404).json({ error: "PowerShell credentials not configured for this tenant. Please contact administrator." });
-      }
-
-      const decryptedPassword = decrypt(psCredentials.encryptedPassword);
-      const credentials: PowerShellCredentials = {
-        username: psCredentials.username,
-        password: decryptedPassword,
-      };
-
-      // Get tenant for audit logging
+      // Get customer tenant
       const tenant = await storage.getTenant(tenantId);
       if (!tenant) {
         return res.status(404).json({ error: "Tenant not found" });
       }
 
+      // Get tenant-specific PowerShell certificate credentials
+      const credentialsArray = await storage.getTenantPowershellCredentials(tenantId);
+      const psCredentials = credentialsArray.find(cred => cred.isActive);
+
+      if (!psCredentials) {
+        return res.status(404).json({ error: "PowerShell credentials not configured for this tenant. Please contact administrator." });
+      }
+
+      // Build certificate credentials
+      const certCredentials: PowerShellCertificateCredentials = {
+        tenantId: tenant.tenantId, // Azure AD tenant ID
+        appId: psCredentials.appId,
+        certificateThumbprint: psCredentials.certificateThumbprint,
+      };
+
       // Execute PowerShell command to assign phone number
-      const result = await assignPhoneNumberToUser(credentials, userPrincipalName, phoneNumber);
+      const result = await assignPhoneNumberCert(certCredentials, userPrincipalName, phoneNumber, locationId);
 
       if (result.success) {
         // Create success audit log
@@ -1415,7 +1641,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get voice routing policies using PowerShell (operator auth required)
+  // Get voice routing policies using PowerShell certificate auth (operator auth required)
   app.post("/api/powershell/get-policies", requireOperatorAuth, async (req, res) => {
     try {
       const { tenantId } = req.body;
@@ -1424,20 +1650,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Missing required field: tenantId" });
       }
 
-      // Get tenant-specific PowerShell credentials
-      const psCredentials = await storage.getTenantPowershellCredentials(tenantId);
+      // Get customer tenant
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      // Get tenant-specific PowerShell certificate credentials
+      const credentialsArray = await storage.getTenantPowershellCredentials(tenantId);
+      const psCredentials = credentialsArray.find(cred => cred.isActive);
+
       if (!psCredentials) {
         return res.status(404).json({ error: "PowerShell credentials not configured for this tenant. Please contact administrator." });
       }
 
-      const decryptedPassword = decrypt(psCredentials.encryptedPassword);
-      const credentials: PowerShellCredentials = {
-        username: psCredentials.username,
-        password: decryptedPassword,
+      // Build certificate credentials
+      const certCredentials: PowerShellCertificateCredentials = {
+        tenantId: tenant.tenantId, // Azure AD tenant ID
+        appId: psCredentials.appId,
+        certificateThumbprint: psCredentials.certificateThumbprint,
       };
 
       // Execute PowerShell command to get policies
-      const result = await getPowerShellPolicies(credentials);
+      const result = await getVoiceRoutingPoliciesCert(certCredentials);
 
       if (result.success) {
         try {
@@ -1467,7 +1702,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Assign voice routing policy using PowerShell (operator auth required)
+  // Assign voice routing policy using PowerShell certificate auth (operator auth required)
   app.post("/api/powershell/assign-policy", requireOperatorAuth, async (req, res) => {
     try {
       const { tenantId, userPrincipalName, policyName } = req.body;
@@ -1476,26 +1711,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Missing required fields: tenantId, userPrincipalName, policyName" });
       }
 
-      // Get tenant-specific PowerShell credentials
-      const psCredentials = await storage.getTenantPowershellCredentials(tenantId);
-      if (!psCredentials) {
-        return res.status(404).json({ error: "PowerShell credentials not configured for this tenant. Please contact administrator." });
-      }
-
-      const decryptedPassword = decrypt(psCredentials.encryptedPassword);
-      const credentials: PowerShellCredentials = {
-        username: psCredentials.username,
-        password: decryptedPassword,
-      };
-
-      // Get tenant for audit logging
+      // Get customer tenant
       const tenant = await storage.getTenant(tenantId);
       if (!tenant) {
         return res.status(404).json({ error: "Tenant not found" });
       }
 
+      // Get tenant-specific PowerShell certificate credentials
+      const credentialsArray = await storage.getTenantPowershellCredentials(tenantId);
+      const psCredentials = credentialsArray.find(cred => cred.isActive);
+
+      if (!psCredentials) {
+        return res.status(404).json({ error: "PowerShell credentials not configured for this tenant. Please contact administrator." });
+      }
+
+      // Build certificate credentials
+      const certCredentials: PowerShellCertificateCredentials = {
+        tenantId: tenant.tenantId, // Azure AD tenant ID
+        appId: psCredentials.appId,
+        certificateThumbprint: psCredentials.certificateThumbprint,
+      };
+
       // Execute PowerShell command to assign policy
-      const result = await assignPowerShellVoiceRoutingPolicy(credentials, userPrincipalName, policyName);
+      const result = await grantVoiceRoutingPolicyCert(certCredentials, userPrincipalName, policyName);
 
       if (result.success) {
         // Create success audit log
@@ -1542,6 +1780,89 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error in PowerShell policy assignment:", error);
       res.status(500).json({ error: "Failed to assign voice routing policy via PowerShell" });
+    }
+  });
+
+  // Assign phone number AND voice routing policy (combined operation) using PowerShell certificate auth
+  app.post("/api/powershell/assign-phone-and-policy", requireOperatorAuth, async (req, res) => {
+    try {
+      const { tenantId, userPrincipalName, phoneNumber, policyName, locationId } = req.body;
+
+      if (!tenantId || !userPrincipalName || !phoneNumber || !policyName) {
+        return res.status(400).json({ error: "Missing required fields: tenantId, userPrincipalName, phoneNumber, policyName" });
+      }
+
+      // Get customer tenant
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      // Get tenant-specific PowerShell certificate credentials
+      const credentialsArray = await storage.getTenantPowershellCredentials(tenantId);
+      const psCredentials = credentialsArray.find(cred => cred.isActive);
+
+      if (!psCredentials) {
+        return res.status(404).json({ error: "PowerShell credentials not configured for this tenant. Please contact administrator." });
+      }
+
+      // Build certificate credentials
+      const certCredentials: PowerShellCertificateCredentials = {
+        tenantId: tenant.tenantId, // Azure AD tenant ID
+        appId: psCredentials.appId,
+        certificateThumbprint: psCredentials.certificateThumbprint,
+      };
+
+      // Execute combined PowerShell command (assigns both phone and policy in one operation)
+      const result = await assignPhoneAndPolicyCert(certCredentials, userPrincipalName, phoneNumber, policyName, locationId);
+
+      if (result.success) {
+        // Create success audit log
+        await storage.createAuditLog({
+          operatorEmail: req.user.email,
+          operatorName: req.user.displayName,
+          tenantId: tenant.tenantId,
+          tenantName: tenant.tenantName,
+          targetUserUpn: userPrincipalName,
+          targetUserName: userPrincipalName,
+          changeType: "voice_configuration_powershell",
+          changeDescription: `Assigned phone number ${phoneNumber} and voice routing policy ${policyName} using PowerShell`,
+          phoneNumber,
+          routingPolicy: policyName,
+          status: "success",
+        });
+
+        res.json({
+          success: true,
+          message: `Successfully assigned phone number ${phoneNumber} and policy ${policyName} to ${userPrincipalName}`,
+          output: result.output,
+        });
+      } else {
+        // Create failure audit log
+        await storage.createAuditLog({
+          operatorEmail: req.user.email,
+          operatorName: req.user.displayName,
+          tenantId: tenant.tenantId,
+          tenantName: tenant.tenantName,
+          targetUserUpn: userPrincipalName,
+          targetUserName: userPrincipalName,
+          changeType: "voice_configuration_failed_powershell",
+          changeDescription: `Failed to assign phone number ${phoneNumber} and voice routing policy ${policyName} using PowerShell`,
+          phoneNumber,
+          routingPolicy: policyName,
+          status: "failed",
+          errorMessage: result.error,
+        });
+
+        res.status(500).json({
+          success: false,
+          error: result.error || "Failed to assign phone and policy via PowerShell",
+          output: result.output,
+        });
+      }
+    } catch (error) {
+      console.error("Error in PowerShell combined assignment:", error);
+      res.status(500).json({ error: "Failed to assign phone and policy via PowerShell" });
     }
   });
 
@@ -1645,7 +1966,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sanitized = credentials.map(cred => ({
         id: cred.id,
         tenantId: cred.tenantId,
-        username: cred.username,
+        appId: cred.appId,
+        certificateThumbprint: cred.certificateThumbprint,
         description: cred.description,
         isActive: cred.isActive,
         createdAt: cred.createdAt,
@@ -1663,28 +1985,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/tenant/:tenantId/powershell-credentials", requireAdminAuth, async (req, res) => {
     try {
       const { tenantId } = req.params;
-      const { username, password, description } = req.body;
+      const { appId, certificateThumbprint, username, password, description } = req.body;
 
-      if (!username || !password) {
-        return res.status(400).json({ error: "Username and password are required" });
+      // Support both certificate-based and legacy user account authentication
+      const isCertificateBased = appId && certificateThumbprint;
+      const isUserAccount = username && password;
+
+      if (!isCertificateBased && !isUserAccount) {
+        return res.status(400).json({
+          error: "Either (appId + certificateThumbprint) or (username + password) are required"
+        });
       }
 
-      // Encrypt the password before storing
-      const encryptedPassword = encrypt(password);
-
-      const credential = await storage.createTenantPowershellCredentials({
+      // Prepare credential data
+      const credentialData: any = {
         tenantId,
-        username,
-        encryptedPassword,
         description,
         isActive: true,
-      });
+      };
 
-      // Return without the encrypted password
+      if (isCertificateBased) {
+        // Certificate-based authentication (recommended)
+        credentialData.appId = appId;
+        credentialData.certificateThumbprint = certificateThumbprint;
+        credentialData.usernameDeprecated = "";
+        credentialData.encryptedPasswordDeprecated = "";
+      } else {
+        // Legacy user account authentication
+        credentialData.appId = null;
+        credentialData.certificateThumbprint = null;
+        credentialData.usernameDeprecated = username;
+        credentialData.encryptedPasswordDeprecated = encrypt(password);
+      }
+
+      const credential = await storage.createTenantPowershellCredentials(credentialData);
+
+      // Return credential details (without sensitive data)
       res.json({
         id: credential.id,
         tenantId: credential.tenantId,
-        username: credential.username,
+        appId: credential.appId,
+        certificateThumbprint: credential.certificateThumbprint,
         description: credential.description,
         isActive: credential.isActive,
         createdAt: credential.createdAt,
@@ -1699,21 +2040,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/admin/tenant/:tenantId/powershell-credentials/:credId", requireAdminAuth, async (req, res) => {
     try {
       const { tenantId, credId } = req.params;
-      const { username, password, description, isActive } = req.body;
+      const { appId, certificateThumbprint, username, password, description, isActive } = req.body;
 
       const updates: any = {};
-      if (username !== undefined) updates.username = username;
-      if (password !== undefined) updates.encryptedPassword = encrypt(password);
+
+      // Support both certificate-based and legacy user account authentication
+      const isCertificateBased = appId !== undefined || certificateThumbprint !== undefined;
+      const isUserAccount = username !== undefined || password !== undefined;
+
+      if (isCertificateBased) {
+        // Certificate-based authentication (recommended)
+        if (appId !== undefined) updates.appId = appId;
+        if (certificateThumbprint !== undefined) updates.certificateThumbprint = certificateThumbprint;
+        // Clear deprecated fields when switching to certificate-based
+        if (appId !== undefined && certificateThumbprint !== undefined) {
+          updates.usernameDeprecated = "";
+          updates.encryptedPasswordDeprecated = "";
+        }
+      } else if (isUserAccount) {
+        // Legacy user account authentication
+        if (username !== undefined) updates.usernameDeprecated = username;
+        if (password !== undefined) updates.encryptedPasswordDeprecated = encrypt(password);
+        // Clear certificate fields when switching to user account
+        if (username !== undefined && password !== undefined) {
+          updates.appId = null;
+          updates.certificateThumbprint = null;
+        }
+      }
+
       if (description !== undefined) updates.description = description;
       if (isActive !== undefined) updates.isActive = isActive;
 
       const credential = await storage.updateTenantPowershellCredentials(credId, updates);
 
-      // Return without the encrypted password
+      // Return credential details (without sensitive data)
       res.json({
         id: credential.id,
         tenantId: credential.tenantId,
-        username: credential.username,
+        appId: credential.appId,
+        certificateThumbprint: credential.certificateThumbprint,
         description: credential.description,
         isActive: credential.isActive,
         updatedAt: credential.updatedAt,
@@ -1738,10 +2103,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ===== OPERATOR POWERSHELL SESSION API =====
 
-  // Get PowerShell credentials for operator use (with encrypted password for WebSocket)
+  // Get PowerShell credentials for operator use (for WebSocket)
   app.get("/api/tenant/:tenantId/powershell-credentials", requireOperatorAuth, async (req, res) => {
     try {
       const { tenantId } = req.params;
+
+      // Get customer tenant for Azure AD tenant ID
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Customer tenant not found" });
+      }
+
       const credentials = await storage.getTenantPowershellCredentials(tenantId);
 
       // Find active credentials
@@ -1750,17 +2122,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "No active PowerShell credentials found for this tenant" });
       }
 
-      // Return with encrypted password (operator needs this for WebSocket authentication)
-      // The operator still can't see the actual password, only the encrypted version
+      // Return certificate credentials (for WebSocket authentication)
       res.json({
-        username: active.username,
-        encryptedPassword: active.encryptedPassword,
+        authType: "certificate",
+        tenantId: tenant.tenantId, // Azure AD tenant ID
+        appId: active.appId,
+        certificateThumbprint: active.certificateThumbprint,
       });
     } catch (error) {
       console.error("Error fetching PowerShell credentials:", error);
       res.status(500).json({ error: "Failed to fetch PowerShell credentials" });
     }
   });
+
+  // Serve documentation files as raw markdown (admin only)
+  app.get("/api/admin/documentation/:filename", requireAdminAuth, async (req, res) => {
+    try {
+      const { filename } = req.params;
+
+      // Security: Only allow specific documentation files
+      const allowedFiles = [
+        "SERVER_CERTIFICATE_SETUP.md",
+        "CUSTOMER_TENANT_POWERSHELL_SETUP.md",
+        "POWERSHELL_QUICKSTART.md",
+        "CERTIFICATE_AUTH_MIGRATION_SUMMARY.md",
+        "POWERSHELL_CERT_IMPLEMENTATION_STATUS.md",
+      ];
+
+      if (!allowedFiles.includes(filename)) {
+        return res.status(400).json({ error: "Invalid documentation file" });
+      }
+
+      const fs = await import("fs/promises");
+      const path = await import("path");
+      const filePath = path.join("C:\\inetpub\\wwwroot\\UCRManager", filename);
+
+      try {
+        const content = await fs.readFile(filePath, "utf-8");
+        res.json({ filename, content });
+      } catch (readError) {
+        res.status(404).json({ error: "Documentation file not found" });
+      }
+    } catch (error) {
+      console.error("Error serving documentation:", error);
+      res.status(500).json({ error: "Failed to load documentation" });
+    }
+  });
+
+  // Setup debug routes (if DEBUG_MODE is enabled)
+  const { setupDebugRoutes } = await import("./debug-routes");
+  setupDebugRoutes(app);
 
   const httpServer = createServer(app);
 

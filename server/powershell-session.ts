@@ -2,6 +2,12 @@ import { spawn, ChildProcessWithoutNullStreams } from "child_process";
 import { EventEmitter } from "events";
 import { decrypt } from "./encryption";
 
+export interface PowerShellCertificateCredentials {
+  tenantId: string; // Azure AD tenant ID
+  appId: string; // Application (client) ID
+  certificateThumbprint: string; // Certificate thumbprint
+}
+
 export interface PowerShellSession {
   id: string;
   tenantId: string;
@@ -50,7 +56,7 @@ export class PowerShellSessionManager {
 
     // Create the PowerShell process in INTERACTIVE mode
     // This allows MFA prompts to appear
-    const pwsh = spawn("pwsh", [
+    const pwsh = spawn("powershell", [
       "-NoProfile",
       "-NoLogo",
       "-ExecutionPolicy", "Bypass",
@@ -90,18 +96,162 @@ export class PowerShellSessionManager {
   }
 
   /**
+   * Create a new PowerShell session with certificate-based authentication
+   * (No MFA required - uses app registration with certificate)
+   */
+  async createSessionWithCertificate(
+    tenantId: string,
+    operatorEmail: string,
+    certCredentials: PowerShellCertificateCredentials
+  ): Promise<string> {
+    const sessionId = this.generateSessionId();
+    const emitter = new EventEmitter();
+
+    console.log(`[PowerShell Session] Creating certificate-based session for ${operatorEmail}`);
+    console.log(`[PowerShell Session] Tenant ID: ${tenantId}`);
+    console.log(`[PowerShell Session] Azure Tenant ID: ${certCredentials.tenantId}`);
+    console.log(`[PowerShell Session] App ID: ${certCredentials.appId.substring(0, 8)}...`);
+    console.log(`[PowerShell Session] Cert Thumbprint: ${certCredentials.certificateThumbprint.substring(0, 8)}...`);
+
+    // Create the PowerShell process
+    // Note: We don't use -NonInteractive because we want to keep the session alive
+    // Certificate auth doesn't require MFA, so it won't prompt interactively
+    const pwsh = spawn("powershell.exe", [
+      "-NoProfile",
+      "-NoLogo",
+      "-ExecutionPolicy", "Bypass",
+      // Note: NOT using -NonInteractive to keep session alive for interactive commands
+    ], {
+      stdio: ["pipe", "pipe", "pipe"], // stdin, stdout, stderr
+      env: {
+        ...process.env,
+        TERM: "dumb", // Prevent complex terminal codes
+        POWERSHELL_TELEMETRY_OPTOUT: "1",
+      }
+    });
+
+    console.log(`[PowerShell Session ${sessionId}] PowerShell process spawned`);
+
+    const session: PowerShellSession = {
+      id: sessionId,
+      tenantId,
+      operatorEmail,
+      process: pwsh,
+      state: "connecting",
+      createdAt: new Date(),
+      lastActivity: new Date(),
+      emitter,
+    };
+
+    this.sessions.set(sessionId, session);
+
+    // Set up output handlers
+    this.setupOutputHandlers(session);
+
+    // Set up error handlers
+    this.setupErrorHandlers(session);
+
+    // Initialize the PowerShell session with certificate-based Teams connection
+    console.log(`[PowerShell Session ${sessionId}] Initializing Teams connection with certificate`);
+    this.initializeTeamsConnectionWithCertificate(session, certCredentials);
+
+    return sessionId;
+  }
+
+  /**
    * Setup handlers for PowerShell output
    */
   private setupOutputHandlers(session: PowerShellSession): void {
+    let jsonBuffer = "";
+    let capturingJson = false;
+
     session.process.stdout.on("data", (data: Buffer) => {
       const output = data.toString();
       session.lastActivity = new Date();
 
-      // Detect MFA prompt
+      // Check for JSON markers for structured data
+      if (output.includes("POLICIES_JSON_START")) {
+        console.log(`[PowerShell Session ${session.id}] Starting JSON capture`);
+        capturingJson = true;
+        jsonBuffer = "";
+
+        // Check if the START and data are in the same chunk
+        const startIndex = output.indexOf("POLICIES_JSON_START");
+        const afterStart = output.substring(startIndex + "POLICIES_JSON_START".length);
+
+        // If there's content after the start marker in this chunk, add it
+        if (afterStart.trim()) {
+          jsonBuffer += afterStart;
+        }
+        return;
+      }
+
+      if (capturingJson) {
+        if (output.includes("POLICIES_JSON_END")) {
+          capturingJson = false;
+
+          // Extract only the part before the END marker
+          const endIndex = output.indexOf("POLICIES_JSON_END");
+          if (endIndex > 0) {
+            jsonBuffer += output.substring(0, endIndex);
+          }
+
+          console.log(`[PowerShell Session ${session.id}] Raw JSON buffer length: ${jsonBuffer.length}`);
+          console.log(`[PowerShell Session ${session.id}] Raw JSON buffer (first 200 chars): ${jsonBuffer.substring(0, 200)}`);
+
+          // Clean the JSON buffer
+          // Remove PowerShell prompts (PS C:\..., PS >, etc.)
+          let cleanedJson = jsonBuffer
+            .replace(/PS\s+[A-Z]:[^\r\n]*/g, '') // Remove PS C:\... prompts
+            .replace(/PS\s*>/g, '') // Remove PS > prompts
+            .replace(/^\s*[\r\n]+/gm, '') // Remove empty lines
+            .trim();
+
+          console.log(`[PowerShell Session ${session.id}] Cleaned JSON length: ${cleanedJson.length}`);
+          console.log(`[PowerShell Session ${session.id}] Cleaned JSON (first 200 chars): ${cleanedJson.substring(0, 200)}`);
+
+          // Parse and emit policies
+          try {
+            const policies = JSON.parse(cleanedJson);
+            console.log(`[PowerShell Session ${session.id}] Successfully parsed policies JSON`);
+
+            // Ensure it's an array
+            const policiesArray = Array.isArray(policies) ? policies : [policies];
+
+            // Transform to match expected format
+            const formattedPolicies = policiesArray.map((p: any) => ({
+              id: p.Identity || "",
+              name: p.Identity?.replace("Tag:", "") || "",
+              description: p.Description || "",
+              pstnUsages: p.OnlinePstnUsages || []
+            }));
+
+            console.log(`[PowerShell Session ${session.id}] Formatted ${formattedPolicies.length} policies`);
+            session.emitter.emit("policies_retrieved", { policies: formattedPolicies });
+            session.emitter.emit("output", { output: `Retrieved ${formattedPolicies.length} voice routing policies` });
+          } catch (err) {
+            console.error(`[PowerShell Session ${session.id}] Failed to parse policies JSON:`, err);
+            console.error(`[PowerShell Session ${session.id}] Failed JSON content:`, cleanedJson.substring(0, 500));
+            session.emitter.emit("error", { error: `Failed to parse policies: ${err instanceof Error ? err.message : String(err)}` });
+          }
+          jsonBuffer = "";
+          return;
+        } else {
+          jsonBuffer += output;
+          return;
+        }
+      }
+
+      // Detect MFA prompt (for legacy user account auth)
       if (this.isMfaPrompt(output)) {
         session.state = "awaiting_mfa";
         session.emitter.emit("mfa_required", { output });
-      } else if (output.includes("Account Id") || output.includes("TenantId")) {
+      } else if (
+        output.includes("Account Id") ||
+        output.includes("TenantId") ||
+        output.includes("Successfully connected to:") ||
+        output.includes("Teams PowerShell session ready")
+      ) {
         // Successfully connected
         session.state = "connected";
         session.emitter.emit("connected", { output });
@@ -124,6 +274,7 @@ export class PowerShellSessionManager {
    */
   private setupErrorHandlers(session: PowerShellSession): void {
     session.process.on("error", (error: Error) => {
+      console.error(`[PowerShell Session ${session.id}] Process error:`, error);
       session.state = "error";
       session.emitter.emit("process_error", {
         error: `PowerShell process error: ${error.message}`
@@ -131,6 +282,7 @@ export class PowerShellSessionManager {
     });
 
     session.process.on("close", (code: number | null) => {
+      console.log(`[PowerShell Session ${session.id}] Process closed with code ${code}`);
       session.state = "disconnected";
       session.emitter.emit("disconnected", {
         code,
@@ -171,6 +323,32 @@ Write-Host "Teams PowerShell session ready. Type commands or 'exit' to quit."
   }
 
   /**
+   * Initialize Teams connection using certificate-based authentication
+   */
+  private initializeTeamsConnectionWithCertificate(
+    session: PowerShellSession,
+    credentials: PowerShellCertificateCredentials
+  ): void {
+    // Send PowerShell commands to connect to Teams with certificate auth
+    const commands = `
+# Import MicrosoftTeams module
+Import-Module MicrosoftTeams -ErrorAction Stop
+
+# Connect to Microsoft Teams using certificate authentication
+Connect-MicrosoftTeams -ApplicationId "${credentials.appId}" -CertificateThumbprint "${credentials.certificateThumbprint}" -TenantId "${credentials.tenantId}" -ErrorAction Stop | Out-Null
+
+# Display connection status
+$tenant = Get-CsTenant
+Write-Host "Successfully connected to: $($tenant.DisplayName)"
+Write-Host "Tenant ID: $($tenant.TenantId)"
+Write-Host ""
+Write-Host "Teams PowerShell session ready. Type commands or 'exit' to quit."
+`;
+
+    this.sendCommand(session.id, commands);
+  }
+
+  /**
    * Detect if output contains an MFA prompt
    */
   private isMfaPrompt(output: string): boolean {
@@ -196,7 +374,8 @@ Write-Host "Teams PowerShell session ready. Type commands or 'exit' to quit."
     }
 
     try {
-      session.process.stdin.write(command + "\n");
+      // Send the entire command at once with newline
+      session.process.stdin.write(command.trim() + "\r\n");
       session.lastActivity = new Date();
       return true;
     } catch (error) {
@@ -278,6 +457,146 @@ Write-Host "Teams PowerShell session ready. Type commands or 'exit' to quit."
   getOperatorSessions(operatorEmail: string): PowerShellSession[] {
     return Array.from(this.sessions.values())
       .filter(session => session.operatorEmail === operatorEmail);
+  }
+
+  /**
+   * Execute a Teams PowerShell command
+   * Useful for common operations like getting phone numbers, policies, etc.
+   */
+  executeTeamsCommand(sessionId: string, command: string): boolean {
+    const session = this.sessions.get(sessionId);
+    if (!session || session.state !== "connected") {
+      return false;
+    }
+
+    // Send the command
+    return this.sendCommand(sessionId, command);
+  }
+
+  /**
+   * Get phone number assignments for a user
+   */
+  getPhoneNumberAssignment(sessionId: string, userPrincipalName?: string): boolean {
+    const command = userPrincipalName
+      ? `Get-CsPhoneNumberAssignment -AssignedPstnTargetId "${userPrincipalName}" | Format-List`
+      : `Get-CsPhoneNumberAssignment | Format-List`;
+    return this.executeTeamsCommand(sessionId, command);
+  }
+
+  /**
+   * Get all voice routing policies
+   */
+  getVoiceRoutingPolicies(sessionId: string): boolean {
+    // Get policies and output as JSON for parsing
+    const command = `
+$policies = Get-CsOnlineVoiceRoutingPolicy | Select-Object Identity, Description, OnlinePstnUsages
+Write-Host "POLICIES_JSON_START"
+$policies | ConvertTo-Json -Depth 3
+Write-Host "POLICIES_JSON_END"
+`;
+    return this.executeTeamsCommand(sessionId, command);
+  }
+
+  /**
+   * Assign a phone number to a user
+   */
+  assignPhoneNumber(
+    sessionId: string,
+    userPrincipalName: string,
+    phoneNumber: string,
+    locationId?: string
+  ): boolean {
+    let command = `Set-CsPhoneNumberAssignment -Identity "${userPrincipalName}" -PhoneNumber "${phoneNumber}" -PhoneNumberType DirectRouting`;
+
+    if (locationId) {
+      command += ` -LocationId "${locationId}"`;
+    }
+
+    return this.executeTeamsCommand(sessionId, command);
+  }
+
+  /**
+   * Assign a voice routing policy to a user
+   */
+  assignVoiceRoutingPolicy(
+    sessionId: string,
+    userPrincipalName: string,
+    policyName: string
+  ): boolean {
+    // Remove "Tag:" prefix if present (PowerShell cmdlet doesn't need it)
+    const cleanPolicyName = policyName.replace(/^Tag:/i, "");
+
+    const command = `Grant-CsOnlineVoiceRoutingPolicy -Identity "${userPrincipalName}" -PolicyName "${cleanPolicyName}"`;
+    return this.executeTeamsCommand(sessionId, command);
+  }
+
+  /**
+   * Assign both phone number and voice routing policy to a user
+   */
+  assignPhoneNumberAndPolicy(
+    sessionId: string,
+    userPrincipalName: string,
+    phoneNumber: string,
+    policyName: string,
+    locationId?: string
+  ): boolean {
+    // Remove "Tag:" prefix if present
+    const cleanPolicyName = policyName.replace(/^Tag:/i, "");
+
+    // Build phone command
+    let phoneCommand = `Set-CsPhoneNumberAssignment -Identity '${userPrincipalName}' -PhoneNumber '${phoneNumber}' -PhoneNumberType DirectRouting`;
+    if (locationId) {
+      phoneCommand += ` -LocationId '${locationId}'`;
+    }
+
+    // Build policy command
+    const policyCommand = `Grant-CsOnlineVoiceRoutingPolicy -Identity '${userPrincipalName}' -PolicyName '${cleanPolicyName}'`;
+
+    // Create a cleaner script that captures errors properly
+    const combinedCommand = `
+Write-Host "=== Starting Assignment ==="
+Write-Host "User: ${userPrincipalName}"
+Write-Host "Phone: ${phoneNumber}"
+Write-Host "Policy: ${cleanPolicyName}"
+Write-Host ""
+
+try {
+  ${phoneCommand} -ErrorAction Stop | Out-Null
+  Write-Host "SUCCESS: Phone number assigned"
+} catch {
+  Write-Host "ERROR: Phone assignment failed - $($_.Exception.Message)"
+  exit 1
+}
+
+try {
+  ${policyCommand} -ErrorAction Stop | Out-Null
+  Write-Host "SUCCESS: Voice routing policy assigned"
+} catch {
+  Write-Host "ERROR: Policy assignment failed - $($_.Exception.Message)"
+  exit 1
+}
+
+Write-Host ""
+Write-Host "=== Assignment Complete ==="
+`;
+
+    return this.executeTeamsCommand(sessionId, combinedCommand);
+  }
+
+  /**
+   * Get user details from Teams
+   */
+  getTeamsUser(sessionId: string, userPrincipalName: string): boolean {
+    const command = `Get-CsOnlineUser -Identity "${userPrincipalName}" | Select-Object DisplayName, UserPrincipalName, LineURI, OnlineVoiceRoutingPolicy, EnterpriseVoiceEnabled | Format-List`;
+    return this.executeTeamsCommand(sessionId, command);
+  }
+
+  /**
+   * Get all Teams users with voice enabled
+   */
+  getTeamsVoiceUsers(sessionId: string): boolean {
+    const command = `Get-CsOnlineUser -Filter {EnterpriseVoiceEnabled -eq $true} | Select-Object DisplayName, UserPrincipalName, LineURI | Format-Table -AutoSize`;
+    return this.executeTeamsCommand(sessionId, command);
   }
 
   /**

@@ -7,6 +7,17 @@ import { setupWebSocketServer } from "./websocket";
 
 const app = express();
 
+// CRITICAL: Intercept API/WS routes BEFORE any other middleware
+// This must be the FIRST middleware registered
+app.use((req, res, next) => {
+  if (req.path.startsWith("/api") || req.path.startsWith("/ws")) {
+    console.log(`[EARLY INTERCEPT] API/WS route detected: ${req.method} ${req.path}`);
+    // Mark this request as an API request
+    (req as any).__isApiRequest = true;
+  }
+  next();
+});
+
 declare module 'http' {
   interface IncomingMessage {
     rawBody: unknown
