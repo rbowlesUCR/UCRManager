@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Save, Phone, Plus, Edit, Trash2, Download, Upload, BarChart3, Filter } from "lucide-react";
+import { Loader2, Save, Phone, Plus, Edit, Trash2, Download, Upload, BarChart3, Filter, Search } from "lucide-react";
 import { TenantSelector } from "@/components/tenant-selector";
 import type { CustomerTenant, PhoneNumberInventory, InsertPhoneNumberInventory, NumberStatus, NumberType, OperatorSession } from "@shared/schema";
 
@@ -38,6 +38,7 @@ export default function NumberManagement() {
   const [selectedNumbers, setSelectedNumbers] = useState<Set<string>>(new Set());
   const [bulkEditData, setBulkEditData] = useState<Partial<InsertPhoneNumberInventory>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isFindingNext, setIsFindingNext] = useState(false);
 
   // Form state for add/edit
   const [formData, setFormData] = useState<Partial<InsertPhoneNumberInventory>>({
@@ -207,6 +208,59 @@ export default function NumberManagement() {
       });
     },
   });
+
+  const handleFindNextAvailable = async () => {
+    if (!selectedTenant) {
+      toast({
+        title: "No tenant selected",
+        description: "Please select a tenant first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!formData.numberRange) {
+      toast({
+        title: "Number range required",
+        description: "Please enter a number range pattern (e.g., +1555123xxxx)",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsFindingNext(true);
+    try {
+      const response = await apiRequest("POST", "/api/numbers/next-available", {
+        tenantId: selectedTenant.id,
+        numberRange: formData.numberRange,
+      });
+
+      if (response.available) {
+        setFormData({
+          ...formData,
+          lineUri: response.nextAvailable,
+        });
+        toast({
+          title: "Next available number found",
+          description: `Found ${response.nextAvailable} (${response.usedCount}/${response.totalCapacity} used, ${response.utilizationPercent}% utilized)`,
+        });
+      } else {
+        toast({
+          title: "No available numbers",
+          description: response.message || "All numbers in this range are used",
+          variant: "destructive",
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Failed to find next available",
+        description: error.message || "An error occurred",
+        variant: "destructive",
+      });
+    } finally {
+      setIsFindingNext(false);
+    }
+  };
 
   const handleAddNumber = () => {
     if (!selectedTenant || !formData.lineUri) {
@@ -664,14 +718,38 @@ export default function NumberManagement() {
                       </DialogDescription>
                     </DialogHeader>
                     <div className="grid grid-cols-2 gap-4 py-4">
-                      <div className="space-y-2">
+                      <div className="space-y-2 col-span-2">
                         <Label htmlFor="lineUri">Line URI *</Label>
-                        <Input
-                          id="lineUri"
-                          placeholder="tel:+15551234567"
-                          value={formData.lineUri}
-                          onChange={(e) => setFormData({ ...formData, lineUri: e.target.value })}
-                        />
+                        <div className="flex gap-2">
+                          <Input
+                            id="lineUri"
+                            placeholder="tel:+15551234567"
+                            value={formData.lineUri}
+                            onChange={(e) => setFormData({ ...formData, lineUri: e.target.value })}
+                            className="flex-1"
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={handleFindNextAvailable}
+                            disabled={isFindingNext || !formData.numberRange}
+                          >
+                            {isFindingNext ? (
+                              <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Finding...
+                              </>
+                            ) : (
+                              <>
+                                <Search className="w-4 h-4 mr-2" />
+                                Find Next
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Enter a number range pattern below (e.g., +1555123xxxx) then click "Find Next" to auto-fill
+                        </p>
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="displayName">Display Name</Label>

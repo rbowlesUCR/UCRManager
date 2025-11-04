@@ -1260,7 +1260,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Find next available number in a range
   app.post("/api/numbers/next-available", requireOperatorAuth, async (req, res) => {
     try {
-      const { tenantId, numberRange } = req.body;
+      const { tenantId, numberRange, status = "available" } = req.body;
 
       if (!tenantId || !numberRange) {
         return res.status(400).json({ error: "tenantId and numberRange are required" });
@@ -1269,14 +1269,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get all numbers in the range
       const numbers = await storage.getPhoneNumbersByRange(tenantId, numberRange);
 
-      // Find the next available number in the sequence
-      // This is a basic implementation - can be enhanced based on specific range patterns
-      const usedNumbers = numbers.map(n => n.lineUri);
+      // Parse the number range pattern
+      // Examples: "+1555123xxxx", "tel:+1555123xxxx", "1234xxx" (extensions)
+      const pattern = numberRange.toLowerCase();
+
+      // Check if pattern contains 'x' characters
+      if (!pattern.includes('x')) {
+        return res.status(400).json({
+          error: "Number range must contain 'x' characters to represent variable digits",
+          example: "+1555123xxxx or 1234xxx"
+        });
+      }
+
+      // Extract prefix and determine the variable portion
+      const xIndex = pattern.indexOf('x');
+      const prefix = numberRange.substring(0, xIndex);
+      const variableLength = (numberRange.match(/x/gi) || []).length;
+
+      // Calculate the maximum possible number for this range
+      const maxNumber = Math.pow(10, variableLength) - 1;
+
+      // Extract used numbers and parse their variable portions
+      const usedVariableNumbers = new Set<number>();
+      for (const num of numbers) {
+        const lineUri = num.lineUri.toLowerCase();
+
+        // Handle both "tel:+1..." and "+1..." formats
+        const normalizedUri = lineUri.startsWith('tel:') ? lineUri.substring(4) : lineUri;
+        const normalizedPrefix = prefix.toLowerCase().startsWith('tel:')
+          ? prefix.substring(4).toLowerCase()
+          : prefix.toLowerCase();
+
+        // Check if this number matches our prefix
+        if (normalizedUri.startsWith(normalizedPrefix)) {
+          const variablePart = normalizedUri.substring(normalizedPrefix.length);
+          // Extract only digits from the variable part
+          const digits = variablePart.match(/\d+/);
+          if (digits && digits[0].length === variableLength) {
+            usedVariableNumbers.add(parseInt(digits[0], 10));
+          }
+        }
+      }
+
+      // Find the next available number by checking sequential numbers
+      let nextAvailable: number | null = null;
+      for (let i = 0; i <= maxNumber; i++) {
+        if (!usedVariableNumbers.has(i)) {
+          nextAvailable = i;
+          break;
+        }
+      }
+
+      if (nextAvailable === null) {
+        return res.json({
+          numberRange,
+          available: false,
+          message: "All numbers in this range are used",
+          totalCapacity: maxNumber + 1,
+          usedCount: usedVariableNumbers.size,
+        });
+      }
+
+      // Format the next available number with proper padding
+      const nextVariableDigits = String(nextAvailable).padStart(variableLength, '0');
+
+      // Construct the full line URI based on the prefix format
+      let nextLineUri: string;
+      if (prefix.toLowerCase().startsWith('tel:')) {
+        nextLineUri = prefix + nextVariableDigits;
+      } else if (prefix.startsWith('+') || prefix.startsWith('1')) {
+        // DID format - add tel: prefix
+        nextLineUri = 'tel:' + prefix + nextVariableDigits;
+      } else {
+        // Extension format - no tel: prefix
+        nextLineUri = prefix + nextVariableDigits;
+      }
 
       res.json({
         numberRange,
-        usedCount: usedNumbers.length,
-        usedNumbers,
+        available: true,
+        nextAvailable: nextLineUri,
+        nextVariableDigits,
+        totalCapacity: maxNumber + 1,
+        usedCount: usedVariableNumbers.size,
+        remainingCapacity: (maxNumber + 1) - usedVariableNumbers.size,
+        utilizationPercent: Math.round((usedVariableNumbers.size / (maxNumber + 1)) * 100),
       });
     } catch (error) {
       console.error("Error finding next available number:", error);
