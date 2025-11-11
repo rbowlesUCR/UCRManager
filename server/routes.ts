@@ -1449,6 +1449,156 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== TEAMS SYNC ROUTES =====
+
+  // Sync phone numbers from Teams and compare with local database
+  app.post("/api/numbers/sync-from-teams/:tenantId", requireOperatorAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      // Fetch phone numbers from local database
+      const localNumbers = await storage.getPhoneNumbers({ tenantId });
+      const localMap = new Map(localNumbers.map(n => [n.lineUri, n]));
+
+      // Fetch phone numbers from Teams using PowerShell
+      const { getTeamsPhoneNumbers } = await import("./teams-sync");
+      const teamsNumbers = await getTeamsPhoneNumbers(tenant);
+
+      // Compare and create diff
+      const toAdd: any[] = [];
+      const toUpdate: any[] = [];
+      const unchanged: any[] = [];
+
+      for (const teamsNum of teamsNumbers) {
+        const local = localMap.get(teamsNum.lineUri);
+
+        if (!local) {
+          // New number from Teams
+          toAdd.push({
+            action: "add",
+            lineUri: teamsNum.lineUri,
+            displayName: teamsNum.displayName,
+            userPrincipalName: teamsNum.userPrincipalName,
+            onlineVoiceRoutingPolicy: teamsNum.onlineVoiceRoutingPolicy,
+            status: teamsNum.lineUri ? "used" : "available",
+            numberType: "did",
+          });
+        } else {
+          // Check if needs update
+          const needsUpdate =
+            local.displayName !== teamsNum.displayName ||
+            local.userPrincipalName !== teamsNum.userPrincipalName ||
+            local.onlineVoiceRoutingPolicy !== teamsNum.onlineVoiceRoutingPolicy;
+
+          if (needsUpdate) {
+            toUpdate.push({
+              action: "update",
+              id: local.id,
+              lineUri: teamsNum.lineUri,
+              local: {
+                displayName: local.displayName,
+                userPrincipalName: local.userPrincipalName,
+                onlineVoiceRoutingPolicy: local.onlineVoiceRoutingPolicy,
+              },
+              teams: {
+                displayName: teamsNum.displayName,
+                userPrincipalName: teamsNum.userPrincipalName,
+                onlineVoiceRoutingPolicy: teamsNum.onlineVoiceRoutingPolicy,
+              },
+            });
+          } else {
+            unchanged.push({
+              action: "unchanged",
+              lineUri: teamsNum.lineUri,
+              displayName: teamsNum.displayName,
+            });
+          }
+        }
+      }
+
+      res.json({
+        summary: {
+          teamsTotal: teamsNumbers.length,
+          localTotal: localNumbers.length,
+          toAdd: toAdd.length,
+          toUpdate: toUpdate.length,
+          unchanged: unchanged.length,
+        },
+        changes: {
+          toAdd,
+          toUpdate,
+          unchanged,
+        },
+      });
+    } catch (error) {
+      console.error("Error syncing from Teams:", error);
+      res.status(500).json({
+        error: "Failed to sync from Teams",
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Apply selected sync changes
+  app.post("/api/numbers/apply-sync", requireOperatorAuth, async (req, res) => {
+    try {
+      const { tenantId, selectedChanges } = req.body;
+      const operatorEmail = req.session.user?.email || "unknown";
+
+      if (!tenantId || !selectedChanges || !Array.isArray(selectedChanges)) {
+        return res.status(400).json({ error: "tenantId and selectedChanges array are required" });
+      }
+
+      const results = {
+        added: 0,
+        updated: 0,
+        errors: [] as any[],
+      };
+
+      for (const change of selectedChanges) {
+        try {
+          if (change.action === "add") {
+            await storage.createPhoneNumber({
+              tenantId,
+              lineUri: change.lineUri,
+              displayName: change.displayName || null,
+              userPrincipalName: change.userPrincipalName || null,
+              onlineVoiceRoutingPolicy: change.onlineVoiceRoutingPolicy || null,
+              numberType: change.numberType || "did",
+              status: change.status || "used",
+              createdBy: operatorEmail,
+              lastModifiedBy: operatorEmail,
+            });
+            results.added++;
+          } else if (change.action === "update" && change.id) {
+            await storage.updatePhoneNumber(change.id, {
+              displayName: change.teams.displayName || null,
+              userPrincipalName: change.teams.userPrincipalName || null,
+              onlineVoiceRoutingPolicy: change.teams.onlineVoiceRoutingPolicy || null,
+              lastModifiedBy: operatorEmail,
+            });
+            results.updated++;
+          }
+        } catch (error) {
+          results.errors.push({
+            lineUri: change.lineUri,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      res.json(results);
+    } catch (error) {
+      console.error("Error applying sync changes:", error);
+      res.status(500).json({ error: "Failed to apply sync changes" });
+    }
+  });
+
   // ===== TEAMS VOICE MANAGEMENT ROUTES =====
 
   // Get Teams voice-enabled users for a tenant

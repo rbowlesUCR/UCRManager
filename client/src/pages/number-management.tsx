@@ -12,8 +12,9 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Save, Phone, Plus, Edit, Trash2, Download, Upload, BarChart3, Filter, Search } from "lucide-react";
+import { Loader2, Save, Phone, Plus, Edit, Trash2, Download, Upload, BarChart3, Filter, Search, RefreshCw } from "lucide-react";
 import { TenantSelector } from "@/components/tenant-selector";
+import { TeamsSyncDialog } from "@/components/teams-sync-dialog";
 import type { CustomerTenant, PhoneNumberInventory, InsertPhoneNumberInventory, NumberStatus, NumberType, OperatorSession } from "@shared/schema";
 
 export default function NumberManagement() {
@@ -24,8 +25,8 @@ export default function NumberManagement() {
   const { data: session } = useQuery<OperatorSession>({
     queryKey: ["/api/auth/session"],
   });
-  const [statusFilter, setStatusFilter] = useState<string>("");
-  const [typeFilter, setTypeFilter] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -39,6 +40,7 @@ export default function NumberManagement() {
   const [bulkEditData, setBulkEditData] = useState<Partial<InsertPhoneNumberInventory>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isFindingNext, setIsFindingNext] = useState(false);
+  const [isSyncDialogOpen, setIsSyncDialogOpen] = useState(false);
 
   // Form state for add/edit
   const [formData, setFormData] = useState<Partial<InsertPhoneNumberInventory>>({
@@ -62,8 +64,8 @@ export default function NumberManagement() {
     enabled: !!selectedTenant,
     queryFn: async () => {
       let url = `/api/numbers?tenantId=${selectedTenant?.id}`;
-      if (statusFilter) url += `&status=${statusFilter}`;
-      if (typeFilter) url += `&numberType=${typeFilter}`;
+      if (statusFilter && statusFilter !== "all") url += `&status=${statusFilter}`;
+      if (typeFilter && typeFilter !== "all") url += `&numberType=${typeFilter}`;
 
       const res = await fetch(url, {
         credentials: "include",
@@ -95,8 +97,8 @@ export default function NumberManagement() {
   // Auto-refresh when tenant changes
   useEffect(() => {
     if (selectedTenant) {
-      setStatusFilter("");
-      setTypeFilter("");
+      setStatusFilter("all");
+      setTypeFilter("all");
       setShowStats(false);
     }
   }, [selectedTenant?.id]);
@@ -961,6 +963,11 @@ export default function NumberManagement() {
                   <BarChart3 className="w-4 h-4 mr-2" />
                   {showStats ? "Hide" : "Show"} Statistics
                 </Button>
+
+                <Button variant="outline" onClick={() => setIsSyncDialogOpen(true)}>
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Sync from Teams
+                </Button>
               </div>
 
               {/* Bulk Actions Bar */}
@@ -991,12 +998,12 @@ export default function NumberManagement() {
                   <Filter className="w-4 h-4 text-muted-foreground" />
                   <Label className="text-sm">Filters:</Label>
                 </div>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value === "all" ? "" : value)}>
                   <SelectTrigger className="w-[150px]">
                     <SelectValue placeholder="All Statuses" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All Statuses</SelectItem>
+                    <SelectItem value="all">All Statuses</SelectItem>
                     <SelectItem value="available">Available</SelectItem>
                     <SelectItem value="used">Used</SelectItem>
                     <SelectItem value="reserved">Reserved</SelectItem>
@@ -1004,12 +1011,12 @@ export default function NumberManagement() {
                   </SelectContent>
                 </Select>
 
-                <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <Select value={typeFilter} onValueChange={(value) => setTypeFilter(value === "all" ? "" : value)}>
                   <SelectTrigger className="w-[150px]">
                     <SelectValue placeholder="All Types" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">All Types</SelectItem>
+                    <SelectItem value="all">All Types</SelectItem>
                     <SelectItem value="did">DID</SelectItem>
                     <SelectItem value="extension">Extension</SelectItem>
                     <SelectItem value="toll-free">Toll-Free</SelectItem>
@@ -1415,6 +1422,18 @@ export default function NumberManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Teams Sync Dialog */}
+      {selectedTenant && (
+        <TeamsSyncDialog
+          open={isSyncDialogOpen}
+          onOpenChange={setIsSyncDialogOpen}
+          tenant={selectedTenant}
+          onSyncComplete={() => {
+            queryClient.invalidateQueries({ queryKey: ["/api/numbers", selectedTenant.id] });
+          }}
+        />
+      )}
     </div>
   );
 }
