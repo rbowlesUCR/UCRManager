@@ -1896,10 +1896,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return { isValid: true, message: "Valid" };
   }
 
-  // Bulk assign phone numbers and routing policies
+  // Bulk assign phone numbers and routing policies via PowerShell
   app.post("/api/teams/bulk-assign-voice", requireOperatorAuth, async (req, res) => {
+    let sessionId: string | null = null;
+
     try {
       const { tenantId, assignments } = req.body;
+
+      console.log(`[BulkAssignment] Starting bulk assignment for ${assignments?.length || 0} users`);
 
       if (!tenantId || !assignments || !Array.isArray(assignments)) {
         return res.status(400).json({ error: "Tenant ID and assignments array are required" });
@@ -1914,6 +1918,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const invalidAssignments = validationResults.filter(r => !r.validation.isValid);
       if (invalidAssignments.length > 0) {
+        console.log(`[BulkAssignment] ${invalidAssignments.length} invalid phone numbers`);
         // Return validation errors for invalid assignments
         const results = validationResults.map(r => ({
           userId: r.userId,
@@ -1929,62 +1934,173 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Tenant not found" });
       }
 
+      // Check for PowerShell credentials (certificate-based auth)
+      const psCredentialsList = await storage.getTenantPowershellCredentials(tenantId);
+      if (!psCredentialsList || psCredentialsList.length === 0) {
+        return res.status(400).json({
+          error: "PowerShell credentials not configured for this tenant. Bulk phone number assignment requires PowerShell."
+        });
+      }
+
+      // Use the first (primary) credential
+      const psCredentials = psCredentialsList[0];
+      console.log(`[BulkAssignment] Using PowerShell credentials ID: ${psCredentials.id}`);
+
+      // Get Graph client for user details
       if (!tenant.appRegistrationId || !tenant.appRegistrationSecret) {
         return res.status(400).json({ error: "Tenant app registration not configured" });
       }
 
-      // Decrypt the app registration secret
       const decryptedSecret = decrypt(tenant.appRegistrationSecret);
-
       const graphClient = await getGraphClient(
         tenant.tenantId,
         tenant.appRegistrationId,
         decryptedSecret
       );
 
-      // Fetch all user details upfront to avoid repeated API calls
+      // Fetch all user details upfront
+      console.log(`[BulkAssignment] Fetching user details for ${assignments.length} users`);
       const userDetailsMap = new Map();
       for (const assignment of assignments) {
         try {
           const user = await graphClient.api(`/users/${assignment.userId}`).get();
           userDetailsMap.set(assignment.userId, user);
         } catch (error) {
-          console.error(`Failed to fetch user ${assignment.userId}:`, error);
-          // Continue - we'll use fallback data from assignment
+          console.error(`[BulkAssignment] Failed to fetch user ${assignment.userId}:`, error);
         }
       }
 
-      // Process each assignment
+      // Create PowerShell session (reuse for all assignments)
+      console.log(`[BulkAssignment] Creating PowerShell session`);
+      sessionId = await powershellSessionManager.createSessionWithCertificate(
+        tenantId,
+        req.user.email,
+        {
+          tenantId: tenant.tenantId,
+          appId: psCredentials.appId,
+          certificateThumbprint: psCredentials.certificateThumbprint
+        }
+      );
+
+      console.log(`[BulkAssignment] PowerShell session created: ${sessionId}`);
+
+      // Wait for connection
+      const session = powershellSessionManager.getSession(sessionId);
+      if (!session) {
+        throw new Error("Failed to create PowerShell session");
+      }
+
+      console.log(`[BulkAssignment] Waiting for PowerShell to connect`);
+
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          console.log(`[BulkAssignment] PowerShell connection timeout`);
+          reject(new Error("PowerShell connection timeout (30 seconds)"));
+        }, 30000);
+
+        const checkConnection = () => {
+          if (session.state === "connected") {
+            console.log(`[BulkAssignment] PowerShell connected successfully`);
+            clearTimeout(timeout);
+            resolve();
+          } else if (session.state === "error") {
+            console.log(`[BulkAssignment] PowerShell connection error`);
+            clearTimeout(timeout);
+            reject(new Error("PowerShell connection failed"));
+          } else {
+            setTimeout(checkConnection, 500);
+          }
+        };
+
+        checkConnection();
+      });
+
+      // Process each assignment using the same PowerShell session
       const results = [];
-      for (const assignment of assignments) {
+      let successCount = 0;
+      let failCount = 0;
+
+      for (let i = 0; i < assignments.length; i++) {
+        const assignment = assignments[i];
         const user = userDetailsMap.get(assignment.userId);
         const userUpn = user?.userPrincipalName || assignment.userId;
         const userName = user?.displayName || assignment.userName;
+
+        console.log(`[BulkAssignment] Processing ${i + 1}/${assignments.length}: ${userName} (${userUpn})`);
 
         try {
           if (!user) {
             throw new Error("User not found or inaccessible");
           }
 
-          // Capture previous values
-          const previousPhoneNumber = user.businessPhones?.[0] || user.mobilePhone || null;
-          let previousRoutingPolicy = null;
-          try {
-            const voicePolicy = await graphClient.api(`/users/${assignment.userId}/onlinevoiceroutingpolicy`).get();
-            previousRoutingPolicy = voicePolicy?.name || null;
-          } catch {
-            // Voice policy may not be available
-          }
+          // Capture output
+          let assignmentOutput: string[] = [];
+          let outputBuffer = "";
 
-          // Assign phone number and policy
-          await assignPhoneNumberAndPolicy(
-            graphClient,
-            assignment.userId,
+          const outputHandler = ({ output }: { output: string }) => {
+            outputBuffer += output;
+            const lines = outputBuffer.split(/\r?\n/);
+            outputBuffer = lines.pop() || "";
+            for (const line of lines) {
+              if (line.trim()) {
+                assignmentOutput.push(line);
+              }
+            }
+          };
+
+          session.emitter.on("output", outputHandler);
+
+          // Send assignment command
+          const success = powershellSessionManager.assignPhoneNumberAndPolicy(
+            sessionId!,
+            userUpn,
             assignment.phoneNumber,
             assignment.routingPolicy
           );
 
-          // Create success audit log with previous values for rollback
+          if (!success) {
+            throw new Error("Failed to send assignment command to PowerShell");
+          }
+
+          // Wait for completion
+          await new Promise<void>((resolve, reject) => {
+            const maxWaitTime = 60000;
+            const startTime = Date.now();
+
+            const checkInterval = setInterval(() => {
+              const elapsed = Date.now() - startTime;
+              const actualOutput = assignmentOutput.filter(line => !line.includes(">>") && !line.includes("PS C:\\"));
+
+              const hasSuccess = actualOutput.some(line => line.includes("RESULT: SUCCESS"));
+              const hasFailed = actualOutput.some(line => line.includes("RESULT: FAILED"));
+              const hasPhoneSuccess = actualOutput.some(line => line.includes("SUCCESS: Phone number assigned"));
+              const hasPolicySuccess = actualOutput.some(line => line.includes("SUCCESS: Voice routing policy assigned"));
+
+              if (hasSuccess || (hasPhoneSuccess && hasPolicySuccess)) {
+                clearInterval(checkInterval);
+                resolve();
+                return;
+              }
+
+              if (hasFailed) {
+                clearInterval(checkInterval);
+                const errorLine = actualOutput.find(line => line.includes("ERROR"));
+                reject(new Error(errorLine || "PowerShell assignment failed"));
+                return;
+              }
+
+              if (elapsed > maxWaitTime) {
+                clearInterval(checkInterval);
+                reject(new Error("PowerShell command timeout (60 seconds)"));
+                return;
+              }
+            }, 500);
+          });
+
+          // Clean up listener
+          session.emitter.removeListener("output", outputHandler);
+
+          // Create success audit log
           await storage.createAuditLog({
             operatorEmail: req.user.email,
             operatorName: req.user.displayName,
@@ -1997,8 +2113,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             changeDescription: `Bulk assigned phone number ${assignment.phoneNumber} and routing policy ${assignment.routingPolicy}`,
             phoneNumber: assignment.phoneNumber,
             routingPolicy: assignment.routingPolicy,
-            previousPhoneNumber,
-            previousRoutingPolicy,
             status: "success",
           });
 
@@ -2007,8 +2121,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             userName: assignment.userName,
             success: true,
           });
+
+          successCount++;
+          console.log(`[BulkAssignment] ✓ Success for ${userName} (${successCount}/${assignments.length})`);
+
         } catch (error: any) {
-          console.error(`Error assigning voice config for user ${assignment.userId}:`, error);
+          console.error(`[BulkAssignment] ✗ Error for ${userName}:`, error.message);
+          failCount++;
 
           // Create failure audit log
           try {
@@ -2027,7 +2146,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               errorMessage: error.message,
             });
           } catch (auditError) {
-            console.error("Error creating failure audit log:", auditError);
+            console.error("[BulkAssignment] Error creating failure audit log:", auditError);
           }
 
           results.push({
@@ -2039,10 +2158,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      console.log(`[BulkAssignment] Bulk assignment complete: ${successCount} success, ${failCount} failed`);
       res.json({ results });
+
     } catch (error) {
-      console.error("Error in bulk voice assignment:", error);
+      console.error("[BulkAssignment] Error in bulk voice assignment:", error);
       res.status(500).json({ error: "Bulk assignment failed" });
+    } finally {
+      // Clean up PowerShell session
+      if (sessionId) {
+        console.log(`[BulkAssignment] Cleaning up PowerShell session: ${sessionId}`);
+        powershellSessionManager.closeSession(sessionId);
+      }
     }
   });
 
