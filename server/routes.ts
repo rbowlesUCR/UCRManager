@@ -33,6 +33,25 @@ import {
 } from "./powershell";
 import { powershellSessionManager } from "./powershell-session";
 import { PolicyType, policyTypeConfig } from "@shared/schema";
+import { format } from "date-fns";
+
+// Helper function to query current user state for audit logging
+async function queryUserState(credentials: PowerShellCertificateCredentials, userPrincipalName: string): Promise<any | null> {
+  try {
+    const result = await getTeamsUserCert(credentials, userPrincipalName);
+    if (result.success && result.output) {
+      // Parse the JSON output from PowerShell
+      const jsonMatch = result.output.match(/{[\s\S]*}/);
+      if (jsonMatch) {
+        return JSON.parse(jsonMatch[0]);
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error("Error querying user state for audit:", error);
+    return null;
+  }
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Middleware
@@ -2039,6 +2058,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             await new Promise(resolve => setTimeout(resolve, 2000));
           }
 
+          // Build certificate credentials for state queries
+          const certCredentials: PowerShellCertificateCredentials = {
+            tenantId: tenant.tenantId,
+            appId: psCredentials.appId,
+            certificateThumbprint: psCredentials.certificateThumbprint,
+          };
+
+          // Query before state for audit log
+          const beforeState = await queryUserState(certCredentials, userUpn);
+
           // Generate unique marker for this specific assignment
           const uniqueMarker = `BULK_${assignment.userId}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
           console.log(`[BulkAssignment][${userName}] Using unique marker: ${uniqueMarker}`);
@@ -2131,6 +2160,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           console.log(`[BulkAssignment][${userName}] Assignment completed, listener removed`);
 
+          // Query after state for audit log
+          const afterState = await queryUserState(certCredentials, userUpn);
+
           // Create success audit log
           await storage.createAuditLog({
             operatorEmail: req.user.email,
@@ -2145,6 +2177,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             phoneNumber: assignment.phoneNumber,
             routingPolicy: assignment.routingPolicy,
             status: "success",
+            beforeState: beforeState,
+            afterState: afterState,
           });
 
           results.push({
@@ -2162,6 +2196,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           // Create failure audit log
           try {
+            // Build certificate credentials for state queries (if not already built)
+            const certCredentials: PowerShellCertificateCredentials = {
+              tenantId: tenant.tenantId,
+              appId: psCredentials.appId,
+              certificateThumbprint: psCredentials.certificateThumbprint,
+            };
+
+            // Query before state for failure audit log
+            const beforeState = await queryUserState(certCredentials, userUpn);
+
             await storage.createAuditLog({
               operatorEmail: req.user.email,
               operatorName: req.user.displayName,
@@ -2175,6 +2219,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               routingPolicy: assignment.routingPolicy,
               status: "failed",
               errorMessage: error.message,
+              beforeState: beforeState,
             });
           } catch (auditError) {
             console.error("[BulkAssignment] Error creating failure audit log:", auditError);
@@ -2304,6 +2349,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[Assignment] PowerShell connected successfully, sending assignment command for ${userPrincipalName}`);
       console.log(`[Assignment] Phone: ${phoneNumber}, Policy: ${routingPolicy}`);
+
+      // Build certificate credentials for state queries
+      const certCredentials: PowerShellCertificateCredentials = {
+        tenantId: tenant.tenantId,
+        appId: psCredentials.appId,
+        certificateThumbprint: psCredentials.certificateThumbprint,
+      };
+
+      // Query before state for audit log
+      const beforeState = await queryUserState(certCredentials, userPrincipalName);
 
       // Generate unique marker for this assignment
       const uniqueMarker = `ASSIGN_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -2471,6 +2526,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sessionId = null;
       }
 
+      // Query after state for audit log
+      const afterState = await queryUserState(certCredentials, userPrincipalName);
+
       // Create audit log
       const auditLog = await storage.createAuditLog({
         operatorEmail: req.user.email,
@@ -2485,6 +2543,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         phoneNumber,
         routingPolicy,
         status: "success",
+        beforeState: beforeState,
+        afterState: afterState,
       });
 
       res.json({ success: true, auditLog });
@@ -2506,20 +2566,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const tenant = await storage.getTenant(tenantId);
 
         if (tenant) {
-          await storage.createAuditLog({
-            operatorEmail: req.user.email,
-            operatorName: req.user.displayName,
-            tenantId: tenant.tenantId,
-            tenantName: tenant.tenantName,
-            targetUserUpn: userId,
-            targetUserName: "Unknown",
-            changeType: "voice_configuration_failed",
-            changeDescription: `Failed to assign phone number ${phoneNumber} and routing policy ${routingPolicy}`,
-            phoneNumber,
-            routingPolicy,
-            status: "failed",
-            errorMessage: error instanceof Error ? error.message : "Unknown error",
-          });
+          // Get PowerShell credentials for state query
+          const psCredentialsList = await storage.getTenantPowershellCredentials(tenantId);
+          if (psCredentialsList && psCredentialsList.length > 0) {
+            const psCredentials = psCredentialsList[0];
+
+            // Build certificate credentials for state query
+            const certCredentials: PowerShellCertificateCredentials = {
+              tenantId: tenant.tenantId,
+              appId: psCredentials.appId,
+              certificateThumbprint: psCredentials.certificateThumbprint,
+            };
+
+            // Query before state for failure audit log
+            const beforeState = await queryUserState(certCredentials, userId);
+
+            await storage.createAuditLog({
+              operatorEmail: req.user.email,
+              operatorName: req.user.displayName,
+              tenantId: tenant.tenantId,
+              tenantName: tenant.tenantName,
+              targetUserUpn: userId,
+              targetUserName: "Unknown",
+              changeType: "voice_configuration_failed",
+              changeDescription: `Failed to assign phone number ${phoneNumber} and routing policy ${routingPolicy}`,
+              phoneNumber,
+              routingPolicy,
+              status: "failed",
+              errorMessage: error instanceof Error ? error.message : "Unknown error",
+              beforeState: beforeState,
+            });
+          }
         }
       } catch (auditError) {
         console.error("Error creating failure audit log:", auditError);
@@ -2561,10 +2638,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         certificateThumbprint: psCredentials.certificateThumbprint,
       };
 
+      // Query before state for audit log
+      const beforeState = await queryUserState(certCredentials, userPrincipalName);
+
       // Execute PowerShell command to assign phone number
       const result = await assignPhoneNumberCert(certCredentials, userPrincipalName, phoneNumber, locationId);
 
       if (result.success) {
+        // Query after state for success audit log
+        const afterState = await queryUserState(certCredentials, userPrincipalName);
+
         // Create success audit log
         await storage.createAuditLog({
           operatorEmail: req.user.email,
@@ -2577,6 +2660,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           changeDescription: `Assigned phone number ${phoneNumber} using PowerShell`,
           phoneNumber,
           status: "success",
+          beforeState: beforeState,
+          afterState: afterState,
         });
 
         res.json({
@@ -2585,7 +2670,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           output: result.output,
         });
       } else {
-        // Create failure audit log
+        // Create failure audit log (only beforeState, no afterState since it failed)
         await storage.createAuditLog({
           operatorEmail: req.user.email,
           operatorName: req.user.displayName,
@@ -2598,6 +2683,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           phoneNumber,
           status: "failed",
           errorMessage: result.error,
+          beforeState: beforeState,
         });
 
         res.status(500).json({
@@ -2863,10 +2949,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         certificateThumbprint: psCredentials.certificateThumbprint,
       };
 
+      // Query before state for audit log
+      const beforeState = await queryUserState(certCredentials, userPrincipalName);
+
       // Execute PowerShell command to assign policy
       const result = await grantVoiceRoutingPolicyCert(certCredentials, userPrincipalName, policyName);
 
       if (result.success) {
+        // Query after state for success audit log
+        const afterState = await queryUserState(certCredentials, userPrincipalName);
+
         // Create success audit log
         await storage.createAuditLog({
           operatorEmail: req.user.email,
@@ -2879,6 +2971,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           changeDescription: `Assigned voice routing policy ${policyName} using PowerShell`,
           routingPolicy: policyName,
           status: "success",
+          beforeState: beforeState,
+          afterState: afterState,
         });
 
         res.json({
@@ -2887,7 +2981,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           output: result.output,
         });
       } else {
-        // Create failure audit log
+        // Create failure audit log (only beforeState, no afterState since it failed)
         await storage.createAuditLog({
           operatorEmail: req.user.email,
           operatorName: req.user.displayName,
@@ -2900,6 +2994,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           routingPolicy: policyName,
           status: "failed",
           errorMessage: result.error,
+          beforeState: beforeState,
         });
 
         res.status(500).json({
@@ -2944,10 +3039,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         certificateThumbprint: psCredentials.certificateThumbprint,
       };
 
+      // Query before state for audit log
+      const beforeState = await queryUserState(certCredentials, userPrincipalName);
+
       // Execute combined PowerShell command (assigns both phone and policy in one operation)
       const result = await assignPhoneAndPolicyCert(certCredentials, userPrincipalName, phoneNumber, policyName, locationId);
 
       if (result.success) {
+        // Query after state for success audit log
+        const afterState = await queryUserState(certCredentials, userPrincipalName);
+
         // Create success audit log
         await storage.createAuditLog({
           operatorEmail: req.user.email,
@@ -2961,6 +3062,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           phoneNumber,
           routingPolicy: policyName,
           status: "success",
+          beforeState: beforeState,
+          afterState: afterState,
         });
 
         res.json({
@@ -2969,7 +3072,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           output: result.output,
         });
       } else {
-        // Create failure audit log
+        // Create failure audit log (only beforeState, no afterState since it failed)
         await storage.createAuditLog({
           operatorEmail: req.user.email,
           operatorName: req.user.displayName,
@@ -2983,6 +3086,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           routingPolicy: policyName,
           status: "failed",
           errorMessage: result.error,
+          beforeState: beforeState,
         });
 
         res.status(500).json({
@@ -3002,16 +3106,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { auditLogId } = req.params;
 
-      // Get the audit log entry by ID (efficient)
+      // Get the audit log entry by ID
       const logEntry = await storage.getAuditLog(auditLogId);
 
       if (!logEntry) {
         return res.status(404).json({ error: "Audit log entry not found" });
       }
 
-      // Check if this entry has previous values for rollback
-      if (!logEntry.targetUserId) {
-        return res.status(400).json({ error: "This change cannot be rolled back (missing user ID)" });
+      // Check if this entry has before_state for rollback
+      if (!logEntry.beforeState) {
+        return res.status(400).json({ error: "Cannot rollback: no before_state captured" });
+      }
+
+      if (!logEntry.targetUserUpn) {
+        return res.status(400).json({ error: "Cannot rollback: missing user UPN" });
       }
 
       // Check if this is a rollback entry itself
@@ -3024,64 +3132,91 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Can only rollback successful changes" });
       }
 
-      // Get tenant information
+      // Get tenant information (audit logs store Azure tenant ID, not internal ID)
       const tenant = await storage.getTenantByTenantId(logEntry.tenantId);
-      if (!tenant || !tenant.appRegistrationId || !tenant.appRegistrationSecret) {
-        return res.status(400).json({ error: "Tenant not found or not configured" });
+      if (!tenant) {
+        return res.status(400).json({ error: "Tenant not found" });
       }
 
-      // Decrypt the app registration secret
-      const decryptedSecret = decrypt(tenant.appRegistrationSecret);
-
-      const graphClient = await getGraphClient(
-        tenant.tenantId,
-        tenant.appRegistrationId,
-        decryptedSecret
-      );
-
-      // Revert to previous values
-      const rollbackPhoneNumber = logEntry.previousPhoneNumber || "";
-      const rollbackRoutingPolicy = logEntry.previousRoutingPolicy || "";
-
-      if (!rollbackPhoneNumber && !rollbackRoutingPolicy) {
-        return res.status(400).json({ error: "No previous values available for rollback" });
+      // Get PowerShell credentials
+      const psCredentialsList = await storage.getTenantPowershellCredentials(tenant.id);
+      if (!psCredentialsList || psCredentialsList.length === 0) {
+        return res.status(400).json({ error: "No PowerShell credentials configured for this tenant" });
       }
 
-      // Perform the rollback
-      await assignPhoneNumberAndPolicy(
-        graphClient,
-        logEntry.targetUserId,
+      const psCredentials = psCredentialsList[0];
+      const certCredentials: PowerShellCertificateCredentials = {
+        tenantId: tenant.tenantId,
+        appId: psCredentials.appId,
+        certificateThumbprint: psCredentials.certificateThumbprint,
+      };
+
+      // Extract phone and policy from before_state
+      const rollbackPhoneNumber = (logEntry.beforeState.LineURI || "").replace(/^tel:/i, "");
+      const rollbackRoutingPolicy = logEntry.beforeState.OnlineVoiceRoutingPolicy?.Name || logEntry.beforeState.OnlineVoiceRoutingPolicy || "Global";
+
+      // Normalize "Global" policy (PowerShell uses $null for Global) and remove "Tag:" prefix
+      const cleanPolicy = (rollbackRoutingPolicy || "").replace(/^Tag:/i, "");
+      const normalizedPolicy = cleanPolicy === "Global" || !cleanPolicy ? "Global" : cleanPolicy;
+
+      console.log(`[Rollback] Reverting ${logEntry.targetUserName} to:`);
+      console.log(`[Rollback]   Phone: ${rollbackPhoneNumber}`);
+      console.log(`[Rollback]   Policy: ${normalizedPolicy}`);
+
+      // Query current state before rollback
+      const beforeRollbackState = await queryUserState(certCredentials, logEntry.targetUserUpn);
+
+      // Perform the rollback using PowerShell
+      const result = await assignPhoneAndPolicyCert(
+        certCredentials,
+        logEntry.targetUserUpn,
         rollbackPhoneNumber,
-        rollbackRoutingPolicy
+        normalizedPolicy
       );
+
+      if (!result.success) {
+        throw new Error(result.error || "Rollback failed");
+      }
+
+      // Query state after rollback
+      const afterRollbackState = await queryUserState(certCredentials, logEntry.targetUserUpn);
 
       // Mark the original log entry as rolled back
       await storage.updateAuditLog(logEntry.id, {
         status: "rolled_back",
       });
 
-      // Create audit log for the rollback (using admin context)
+      // Create audit log for the rollback
       await storage.createAuditLog({
-        operatorEmail: "admin",
-        operatorName: "Admin",
+        operatorEmail: req.user.email,
+        operatorName: req.user.displayName,
         tenantId: logEntry.tenantId,
         tenantName: logEntry.tenantName,
         targetUserUpn: logEntry.targetUserUpn,
         targetUserName: logEntry.targetUserName,
         targetUserId: logEntry.targetUserId,
         changeType: "rollback",
-        changeDescription: `Rolled back change from ${logEntry.timestamp.toISOString()}: restored phone number ${rollbackPhoneNumber || "(none)"} and policy ${rollbackRoutingPolicy || "(none)"}`,
+        changeDescription: `Rolled back change from ${format(logEntry.timestamp, "MMM dd, yyyy HH:mm:ss")}: restored phone ${rollbackPhoneNumber} and policy ${normalizedPolicy}`,
         phoneNumber: rollbackPhoneNumber,
-        routingPolicy: rollbackRoutingPolicy,
+        routingPolicy: normalizedPolicy,
         previousPhoneNumber: logEntry.phoneNumber,
         previousRoutingPolicy: logEntry.routingPolicy,
         status: "success",
+        beforeState: beforeRollbackState,
+        afterState: afterRollbackState,
       });
 
-      res.json({ success: true, message: "Change rolled back successfully" });
+      res.json({
+        success: true,
+        message: "Change rolled back successfully",
+        rolledBackTo: {
+          phone: rollbackPhoneNumber,
+          policy: normalizedPolicy
+        }
+      });
     } catch (error) {
       console.error("Error rolling back change:", error);
-      res.status(500).json({ error: "Failed to rollback change" });
+      res.status(500).json({ error: error instanceof Error ? error.message : "Failed to rollback change" });
     }
   });
 
@@ -3303,6 +3438,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Setup debug routes (if DEBUG_MODE is enabled)
   const { setupDebugRoutes } = await import("./debug-routes");
   setupDebugRoutes(app);
+  // Setup synthetic transactions (for testing audit logs)
+  const { setupSyntheticTransactions } = await import("./synthetic-transactions");
+  setupSyntheticTransactions(app);
+  // Setup comprehensive synthetic tests
+  const { setupComprehensiveSyntheticTests } = await import("./comprehensive-synthetic-tests");
+  setupComprehensiveSyntheticTests(app);
+
+
 
   const httpServer = createServer(app);
 

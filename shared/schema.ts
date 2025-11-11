@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -41,6 +41,8 @@ export const auditLogs = pgTable("audit_logs", {
   previousRoutingPolicy: text("previous_routing_policy"), // Previous routing policy (for rollback)
   status: text("status").notNull().default("success"), // success, failed, partial
   errorMessage: text("error_message"), // Error details if status is failed
+  beforeState: jsonb("before_state"), // Complete user configuration before change (for revert)
+  afterState: jsonb("after_state"), // Complete user configuration after change
   timestamp: timestamp("timestamp").defaultNow().notNull(),
 });
 

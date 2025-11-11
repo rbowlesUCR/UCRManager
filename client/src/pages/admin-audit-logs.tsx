@@ -74,9 +74,11 @@ export default function AdminAuditLogs() {
   const canRollback = (log: AuditLog) => {
     return (
       log.status === "success" &&
-      log.targetUserId &&
-      (log.previousPhoneNumber || log.previousRoutingPolicy) &&
-      log.changeType !== "rollback"
+      log.targetUserUpn &&
+      log.beforeState &&
+      log.changeType !== "rollback" &&
+      log.changeType !== "user_added" &&
+      log.changeType !== "user_removed"
     );
   };
 
@@ -318,19 +320,44 @@ export default function AdminAuditLogs() {
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="font-medium">User:</div>
                 <div>{selectedLog.targetUserName}</div>
-                
-                <div className="font-medium">Current Phone:</div>
-                <div>{selectedLog.phoneNumber || "-"}</div>
-                
-                <div className="font-medium">Current Policy:</div>
-                <div>{selectedLog.routingPolicy || "-"}</div>
-                
-                <div className="font-medium text-destructive">Rollback to Phone:</div>
-                <div className="text-destructive">{selectedLog.previousPhoneNumber || "(none)"}</div>
-                
-                <div className="font-medium text-destructive">Rollback to Policy:</div>
-                <div className="text-destructive">{selectedLog.previousRoutingPolicy || "(none)"}</div>
+
+                <div className="font-medium">Current State:</div>
+                <div className="text-xs space-y-1">
+                  {selectedLog.afterState ? (
+                    <>
+                      <div>Phone: {selectedLog.afterState.LineURI || "(none)"}</div>
+                      <div>Policy: {selectedLog.afterState.OnlineVoiceRoutingPolicy?.Name || selectedLog.afterState.OnlineVoiceRoutingPolicy || "Global"}</div>
+                    </>
+                  ) : (
+                    <div>{selectedLog.phoneNumber} / {selectedLog.routingPolicy}</div>
+                  )}
+                </div>
+
+                <div className="font-medium text-primary">Revert to:</div>
+                <div className="text-xs space-y-1 text-primary font-semibold">
+                  {selectedLog.beforeState ? (
+                    <>
+                      <div>Phone: {selectedLog.beforeState.LineURI || "(none)"}</div>
+                      <div>Policy: {selectedLog.beforeState.OnlineVoiceRoutingPolicy?.Name || selectedLog.beforeState.OnlineVoiceRoutingPolicy || "Global"}</div>
+                    </>
+                  ) : (
+                    <div>No before state available</div>
+                  )}
+                </div>
               </div>
+
+              {selectedLog.beforeState && (
+                <div className="mt-4 p-3 bg-muted rounded-lg text-xs">
+                  <p className="font-medium mb-2">This will restore the configuration to:</p>
+                  <ul className="space-y-1 text-muted-foreground">
+                    <li>• Display Name: {selectedLog.beforeState.DisplayName}</li>
+                    <li>• Voice Enabled: {selectedLog.beforeState.EnterpriseVoiceEnabled ? "Yes" : "No"}</li>
+                    {selectedLog.beforeState.HostedVoiceMail !== null && (
+                      <li>• Hosted Voicemail: {selectedLog.beforeState.HostedVoiceMail ? "Yes" : "No"}</li>
+                    )}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
 
