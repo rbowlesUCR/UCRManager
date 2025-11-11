@@ -47,10 +47,37 @@ export function BulkAssignmentDialog({ open, onOpenChange, selectedTenant }: Bul
     enabled: !!selectedTenant && open,
   });
 
-  // Fetch routing policies
-  const { data: routingPolicies, isLoading: isLoadingPolicies } = useQuery({
-    queryKey: ["/api/teams/routing-policies", selectedTenant?.id],
+  // Fetch routing policies via PowerShell (same as Dashboard)
+  const { data: routingPoliciesData, isLoading: isLoadingPolicies } = useQuery({
+    queryKey: ["/api/powershell/get-policies", selectedTenant?.id],
     enabled: !!selectedTenant && open,
+    queryFn: async () => {
+      console.log("[BulkAssignment] Fetching policies for tenant:", selectedTenant?.id);
+      const res = await fetch(`/api/powershell/get-policies`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({ tenantId: selectedTenant?.id }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error(`[BulkAssignment] Failed to fetch policies: ${text}`);
+        throw new Error(`${res.status}: ${text}`);
+      }
+      const data = await res.json();
+      console.log("[BulkAssignment] PowerShell policies response:", data);
+
+      // The PowerShell endpoint returns { success: true, policies: [...] }
+      if (data.success && data.policies) {
+        console.log(`[BulkAssignment] Retrieved ${data.policies.length} policies`);
+        return data.policies;
+      }
+
+      console.warn("[BulkAssignment] No policies returned from PowerShell");
+      return [];
+    },
   });
 
   const bulkAssignMutation = useMutation({
@@ -239,7 +266,17 @@ export function BulkAssignmentDialog({ open, onOpenChange, selectedTenant }: Bul
   };
 
   const users = (teamsUsers as TeamsUser[]) || [];
-  const policies = (routingPolicies as VoiceRoutingPolicy[]) || [];
+  const policies = (routingPoliciesData as VoiceRoutingPolicy[]) || [];
+
+  // Debug logging
+  useEffect(() => {
+    if (open && selectedTenant) {
+      console.log("[BulkAssignment] Dialog opened");
+      console.log("[BulkAssignment] Users:", users.length);
+      console.log("[BulkAssignment] Policies:", policies.length);
+      console.log("[BulkAssignment] Policy data:", policies);
+    }
+  }, [open, selectedTenant, users.length, policies.length]);
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
