@@ -41,6 +41,7 @@ export default function NumberManagement() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isFindingNext, setIsFindingNext] = useState(false);
   const [isSyncDialogOpen, setIsSyncDialogOpen] = useState(false);
+  const [isBulkDeleteDialogOpen, setIsBulkDeleteDialogOpen] = useState(false);
 
   // Form state for add/edit
   const [formData, setFormData] = useState<Partial<InsertPhoneNumberInventory>>({
@@ -257,6 +258,28 @@ export default function NumberManagement() {
     onError: (error: Error) => {
       toast({
         title: "Failed to reset policy",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Mutation to bulk delete all phone numbers for tenant
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (tenantId: string) => {
+      return await apiRequest("DELETE", `/api/numbers/bulk-delete/${tenantId}`, {});
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Numbers deleted successfully",
+        description: data.message || "All phone numbers have been deleted from inventory",
+      });
+      setIsBulkDeleteDialogOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/numbers", selectedTenant?.id] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to delete numbers",
         description: error.message,
         variant: "destructive",
       });
@@ -1020,6 +1043,16 @@ export default function NumberManagement() {
                   <RefreshCw className="w-4 h-4 mr-2" />
                   Sync from Teams
                 </Button>
+
+                <Button
+                  variant="outline"
+                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                  onClick={() => setIsBulkDeleteDialogOpen(true)}
+                  disabled={!phoneNumbers || phoneNumbers.length === 0}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete All Numbers
+                </Button>
               </div>
 
               {/* Bulk Actions Bar */}
@@ -1513,6 +1546,61 @@ export default function NumberManagement() {
             <Button onClick={handleBulkEdit}>
               <Save className="w-4 h-4 mr-2" />
               Update {selectedNumbers.size} Numbers
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <Dialog open={isBulkDeleteDialogOpen} onOpenChange={setIsBulkDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete All Phone Numbers</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete ALL phone numbers for this tenant? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {selectedTenant && phoneNumbers && (
+            <div className="py-4">
+              <div className="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg p-4">
+                <p className="text-sm font-semibold text-red-900 dark:text-red-100 mb-2">
+                  Warning: This will permanently delete:
+                </p>
+                <ul className="list-disc list-inside text-sm text-red-800 dark:text-red-200 space-y-1">
+                  <li><strong>{phoneNumbers.length}</strong> phone numbers</li>
+                  <li>From tenant: <strong>{selectedTenant.tenantName}</strong></li>
+                  <li>All associated data and history</li>
+                </ul>
+              </div>
+              <p className="text-sm text-muted-foreground mt-4">
+                This only deletes from the local database. Numbers in Microsoft Teams will not be affected.
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsBulkDeleteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (selectedTenant) {
+                  bulkDeleteMutation.mutate(selectedTenant.id);
+                }
+              }}
+              disabled={bulkDeleteMutation.isPending}
+            >
+              {bulkDeleteMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete All {phoneNumbers?.length || 0} Numbers
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

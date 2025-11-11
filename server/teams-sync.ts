@@ -53,8 +53,12 @@ export async function getTeamsPhoneNumbers(tenant: CustomerTenant): Promise<Team
     # Get all users with phone numbers assigned
     $users = Get-CsOnlineUser | Where-Object { $_.LineURI -ne $null -and $_.LineURI -ne "" }
 
-    # Format the results
-    $results = $users | ForEach-Object {
+    # Get all resource accounts (application instances) with phone numbers assigned
+    # These are used for auto attendants, call queues, and IVR systems
+    $resourceAccounts = Get-CsOnlineApplicationInstance | Where-Object { $_.PhoneNumber -ne $null -and $_.PhoneNumber -ne "" }
+
+    # Format user results
+    $userResults = $users | ForEach-Object {
       [PSCustomObject]@{
         LineURI = $_.LineURI
         DisplayName = $_.DisplayName
@@ -63,15 +67,34 @@ export async function getTeamsPhoneNumbers(tenant: CustomerTenant): Promise<Team
       }
     }
 
+    # Format resource account results
+    $resourceResults = $resourceAccounts | ForEach-Object {
+      [PSCustomObject]@{
+        LineURI = $_.PhoneNumber
+        DisplayName = $_.DisplayName
+        UserPrincipalName = $_.UserPrincipalName
+        OnlineVoiceRoutingPolicy = $_.OnlineVoiceRoutingPolicy
+      }
+    }
+
+    # Combine both result sets
+    $allResults = @()
+    if ($userResults) { $allResults += $userResults }
+    if ($resourceResults) { $allResults += $resourceResults }
+
     # Output as JSON
-    $results | ConvertTo-Json -Depth 10
+    if ($allResults.Count -gt 0) {
+      $allResults | ConvertTo-Json -Depth 10
+    } else {
+      "[]"
+    }
   `;
 
   try {
     const result = await executePowerShellWithCertificate(
       certificateCredentials,
       powerShellScript,
-      120000 // 2 minute timeout
+      180000 // 3 minute timeout (increased for querying both users and resource accounts)
     );
 
     if (!result.success || !result.output) {

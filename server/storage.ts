@@ -408,6 +408,15 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
+  // Bulk delete phone numbers by tenant
+  async bulkDeletePhoneNumbers(tenantId: string): Promise<number> {
+    const result = await db
+      .delete(phoneNumberInventory)
+      .where(eq(phoneNumberInventory.tenantId, tenantId))
+      .returning();
+    return result.length;
+  }
+
   // Get phone numbers by range
   async getPhoneNumbersByRange(tenantId: string, numberRange: string): Promise<PhoneNumberInventory[]> {
     const numbers = await db

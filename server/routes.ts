@@ -1151,7 +1151,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create new phone number
   app.post("/api/numbers", requireOperatorAuth, async (req, res) => {
     try {
-      const operatorEmail = req.session.user?.email || "unknown";
+      const operatorEmail = req.user?.email || "unknown";
 
       const result = insertPhoneNumberInventorySchema.safeParse({
         ...req.body,
@@ -1186,7 +1186,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Bulk import phone numbers
   app.post("/api/numbers/bulk-import", requireOperatorAuth, async (req, res) => {
     try {
-      const operatorEmail = req.session.user?.email || "unknown";
+      const operatorEmail = req.user?.email || "unknown";
       const { tenantId, numbers } = req.body;
 
       if (!tenantId || !Array.isArray(numbers)) {
@@ -1244,7 +1244,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const updates = req.body;
-      const operatorEmail = req.session.user?.email || "unknown";
+      const operatorEmail = req.user?.email || "unknown";
 
       // Verify number exists
       const existingNumber = await storage.getPhoneNumber(id);
@@ -1270,7 +1270,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/numbers/bulk-update", requireOperatorAuth, async (req, res) => {
     try {
       const { ids, updates } = req.body;
-      const operatorEmail = req.session.user?.email || "unknown";
+      const operatorEmail = req.user?.email || "unknown";
 
       if (!Array.isArray(ids) || !updates) {
         return res.status(400).json({ error: "ids array and updates object are required" });
@@ -1318,6 +1318,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting phone number:", error);
       res.status(500).json({ error: "Failed to delete phone number" });
+    }
+  });
+
+  // Bulk delete all phone numbers for a tenant
+  app.delete("/api/numbers/bulk-delete/:tenantId", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+
+      // Verify tenant exists
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      const deletedCount = await storage.bulkDeletePhoneNumbers(tenantId);
+      res.json({
+        success: true,
+        deletedCount,
+        message: `Deleted ${deletedCount} phone number(s) for tenant ${tenant.tenantName}`
+      });
+    } catch (error) {
+      console.error("Error bulk deleting phone numbers:", error);
+      res.status(500).json({ error: "Failed to bulk delete phone numbers" });
     }
   });
 
@@ -1449,7 +1472,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const { reservedBy } = req.body;
-      const operatorEmail = req.session.user?.email || "unknown";
+      const operatorEmail = req.user?.email || "unknown";
 
       if (!reservedBy) {
         return res.status(400).json({ error: "reservedBy field is required" });
@@ -1473,7 +1496,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/numbers/:id/release", requireOperatorAuth, async (req, res) => {
     try {
       const { id } = req.params;
-      const operatorEmail = req.session.user?.email || "unknown";
+      const operatorEmail = req.user?.email || "unknown";
 
       const { lifecycleManager } = await import("./lifecycle-manager");
       const success = await lifecycleManager.releaseReservedNumber(id, operatorEmail);
@@ -1612,7 +1635,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/numbers/apply-sync", requireOperatorAuth, async (req, res) => {
     try {
       const { tenantId, selectedChanges } = req.body;
-      const operatorEmail = req.session.user?.email || "unknown";
+      const operatorEmail = req.user?.email || "unknown";
 
       if (!tenantId || !selectedChanges || !Array.isArray(selectedChanges)) {
         return res.status(400).json({ error: "tenantId and selectedChanges array are required" });
@@ -1659,7 +1682,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(results);
     } catch (error) {
       console.error("Error applying sync changes:", error);
-      res.status(500).json({ error: "Failed to apply sync changes" });
+      console.error("Error stack:", error instanceof Error ? error.stack : "No stack trace");
+      console.error("Error details:", JSON.stringify(error, null, 2));
+      res.status(500).json({
+        error: "Failed to apply sync changes",
+        details: error instanceof Error ? error.message : String(error)
+      });
     }
   });
 

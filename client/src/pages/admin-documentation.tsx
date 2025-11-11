@@ -340,46 +340,29 @@ export default function AdminDocumentation() {
             <CardHeader>
               <CardTitle>PowerShell for Teams Administration</CardTitle>
               <CardDescription>
-                Two authentication methods available: Certificate-based (recommended) or User Account
+                Certificate-based authentication for secure, automated PowerShell operations
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Authentication Methods Overview */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-green-50 dark:bg-green-950 border-2 border-green-300 dark:border-green-700 rounded-lg p-4">
-                  <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
-                    <span className="text-lg">✅</span> Certificate-Based Authentication (Recommended)
-                  </h4>
-                  <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground ml-2">
-                    <li><strong>No user credentials stored</strong></li>
-                    <li><strong>No MFA prompts</strong></li>
-                    <li>Fully automated operations</li>
-                    <li>Microsoft best practice</li>
-                    <li>Instant revocation via Azure AD</li>
-                  </ul>
-                  <a href="#server-certificate-setup" className="text-sm text-primary hover:underline mt-2 block">
-                    → Setup Guide Below
-                  </a>
-                </div>
-                <div className="bg-amber-50 dark:bg-amber-950 border border-amber-300 dark:border-amber-700 rounded-lg p-4">
-                  <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
-                    <span className="text-lg">⚠️</span> User Account Authentication (Alternative)
-                  </h4>
-                  <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground ml-2">
-                    <li>Requires service account credentials</li>
-                    <li>MFA must be disabled</li>
-                    <li>Passwords stored (encrypted)</li>
-                    <li>Legacy method</li>
-                  </ul>
-                  <a href="#user-account-setup" className="text-sm text-primary hover:underline mt-2 block">
-                    → Setup Guide Below
-                  </a>
-                </div>
+              <div className="bg-green-50 dark:bg-green-950 border-2 border-green-300 dark:border-green-700 rounded-lg p-4">
+                <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
+                  <span className="text-lg">✅</span> Certificate-Based Authentication
+                </h4>
+                <p className="text-sm mb-3">
+                  Microsoft's recommended approach for automated PowerShell operations with Teams.
+                </p>
+                <ul className="list-disc list-inside space-y-1 text-xs text-muted-foreground ml-2">
+                  <li><strong>No user credentials stored</strong> - Only certificate thumbprint (public info)</li>
+                  <li><strong>No MFA prompts</strong> - Fully automated authentication</li>
+                  <li><strong>Fully automated operations</strong> - No interactive sign-in required</li>
+                  <li><strong>Microsoft best practice</strong> - Industry-standard approach</li>
+                  <li><strong>Instant revocation</strong> - Remove certificate from Azure AD to disable</li>
+                </ul>
               </div>
 
               {/* Certificate-Based Authentication Section */}
               <div id="server-certificate-setup" className="scroll-mt-20">
-                <h3 className="text-xl font-bold mb-4 border-b pb-2">🔐 Certificate-Based Authentication (Recommended)</h3>
+                <h3 className="text-xl font-bold mb-4 border-b pb-2">🔐 Certificate-Based Authentication Setup</h3>
 
                 <div className="bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-950 dark:to-green-950 border-2 border-blue-300 dark:border-blue-700 rounded-lg p-5 mb-4">
                   <h4 className="font-semibold text-base mb-3 flex items-center gap-2">
@@ -438,6 +421,7 @@ export default function AdminDocumentation() {
                     <ul className="list-disc list-inside space-y-1 text-sm ml-2">
                       <li><strong>Zero credentials stored</strong> - Only certificate thumbprint (public info)</li>
                       <li><strong>No MFA needed</strong> - Fully automated authentication</li>
+                      <li><strong>Least privilege access</strong> - Uses Teams Communications Administrator role (minimum permissions)</li>
                       <li><strong>Private key never leaves server</strong> - Stored in Windows Certificate Store</li>
                       <li><strong>Easy certificate rotation</strong> - Generate new, upload to Azure, update thumbprint</li>
                       <li><strong>Instant revocation</strong> - Remove from Azure AD to disable</li>
@@ -477,20 +461,29 @@ export default function AdminDocumentation() {
                     </div>
 
                     <div>
-                      <h5 className="font-semibold text-sm mb-2">Step 3: Grant API Permissions</h5>
-                      <p className="text-sm text-muted-foreground mb-2">
-                        In your Azure AD app registration, ensure these <strong>Application permissions</strong> are granted:
-                      </p>
-                      <div className="space-y-2">
-                        <div className="bg-muted p-2 rounded text-sm">
-                          <code>User.Read.All</code> - Read user information
-                        </div>
-                        <div className="bg-muted p-2 rounded text-sm">
-                          <code>Organization.Read.All</code> - Read organization info
-                        </div>
+                      <h5 className="font-semibold text-sm mb-2">Step 3: Assign Teams Communications Administrator Role</h5>
+                      <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg p-3 mb-3">
+                        <p className="text-sm font-semibold mb-1">✅ Teams Communications Administrator</p>
+                        <p className="text-xs text-muted-foreground">
+                          This role provides the minimum permissions needed for phone number and voice routing policy management.
+                          It's more secure than Teams Administrator or Global Administrator as it has a narrower scope.
+                        </p>
                       </div>
-                      <p className="text-sm text-amber-600 dark:text-amber-400 mt-2">
-                        ⚠️ Click <strong>"Grant admin consent"</strong> after adding permissions!
+                      <p className="text-sm text-muted-foreground mb-3">
+                        <strong>To grant this role to your app registration:</strong>
+                      </p>
+                      <ol className="list-decimal list-inside space-y-2 text-sm">
+                        <li>In <a href="https://portal.azure.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">Azure Portal <ExternalLink className="h-3 w-3" /></a>, navigate to <strong>Microsoft Entra ID</strong></li>
+                        <li>Go to <strong>Roles and administrators</strong></li>
+                        <li>Search for and select <strong>Teams Communications Administrator</strong></li>
+                        <li>Click <strong>Add assignments</strong></li>
+                        <li>Search for your app registration by name (e.g., "Teams Voice Manager - Customer API Access")</li>
+                        <li>Select the app registration and click <strong>Add</strong></li>
+                        <li>Verify the assignment appears in the list</li>
+                      </ol>
+                      <p className="text-sm text-amber-600 dark:text-amber-400 mt-3">
+                        ⚠️ <strong>Important:</strong> This role must be assigned to the app registration itself, not to a user account.
+                        The app uses certificate authentication and operates with the permissions of the assigned role.
                       </p>
                     </div>
 
@@ -529,245 +522,6 @@ export default function AdminDocumentation() {
                     <li>Remove old certificate from Azure AD</li>
                   </ol>
                 </div>
-              </div>
-
-              {/* User Account Authentication Section */}
-              <div id="user-account-setup" className="scroll-mt-20">
-                <h3 className="text-xl font-bold mb-4 border-b pb-2">👤 User Account Authentication (Alternative)</h3>
-              {/* Replit Platform Limitation Warning */}
-              <div className="bg-red-50 dark:bg-red-950 border-2 border-red-300 dark:border-red-700 rounded-lg p-4">
-                <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
-                  <span className="text-lg">⚠️</span> Replit Platform Limitation
-                </h4>
-                <p className="text-sm mb-3">
-                  <strong>PowerShell script execution does NOT work on Replit platform (development OR production deployments).</strong>
-                </p>
-                <p className="text-sm text-muted-foreground mb-2">
-                  PowerShell requires TTY (terminal) capabilities that aren't available in Replit's containerized environment. According to Replit's documentation, both development workspaces and production deployments run in containers without direct TTY access.
-                </p>
-                <div className="bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700 rounded p-3 mt-3">
-                  <p className="text-sm font-semibold text-blue-900 dark:text-blue-100">💡 Solution:</p>
-                  <p className="text-sm text-blue-900 dark:text-blue-100 mt-1 mb-2">
-                    To use PowerShell features, deploy this application to a compatible platform:
-                  </p>
-                  <ul className="list-disc list-inside text-sm text-blue-900 dark:text-blue-100 ml-2 space-y-1">
-                    <li><strong>Azure App Service</strong> (recommended for Teams integration)</li>
-                    <li><strong>AWS EC2</strong> or <strong>Google Cloud Compute Engine</strong></li>
-                    <li><strong>Digital Ocean</strong>, <strong>Linode</strong>, or any VPS</li>
-                    <li><strong>Your own server</strong> with PowerShell 7.5+ installed</li>
-                  </ul>
-                </div>
-                <div className="bg-green-100 dark:bg-green-900/30 border border-green-300 dark:border-green-700 rounded p-3 mt-3">
-                  <p className="text-sm font-semibold text-green-900 dark:text-green-100">✓ What's ready:</p>
-                  <ul className="list-disc list-inside text-sm text-green-900 dark:text-green-100 mt-1 ml-2 space-y-1">
-                    <li>PowerShell 7.5.1 is installed correctly</li>
-                    <li>MicrosoftTeams module is pre-installed</li>
-                    <li>All code is ready - just needs compatible hosting</li>
-                    <li>You can configure credentials now for when you deploy</li>
-                  </ul>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold mb-3">Overview</h3>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Some Microsoft Teams operations require PowerShell because Graph API endpoints don't exist yet:
-                </p>
-                <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-4">
-                  <li><strong>Phone number assignment</strong>: <code className="bg-muted px-1 rounded">Set-CsPhoneNumberAssignment</code> (Graph API alternative exists but may have limitations)</li>
-                  <li><strong>Policy listing</strong>: <code className="bg-muted px-1 rounded">Get-CsOnlineVoiceRoutingPolicy</code> (No Graph API equivalent)</li>
-                  <li><strong>Advanced configurations</strong>: Various Teams-specific settings not exposed via Graph API</li>
-                </ul>
-              </div>
-
-              <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
-                <h4 className="font-semibold text-sm mb-2">⚠️ Per-Tenant Credentials</h4>
-                <p className="text-sm">
-                  PowerShell credentials are configured <strong>per customer tenant</strong>. Each tenant can have its own optional service account for PowerShell operations.
-                </p>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold mb-3">Required Administrator Roles</h3>
-                <p className="text-sm text-muted-foreground mb-3">
-                  The service account must have one of these roles in the customer tenant:
-                </p>
-                <div className="space-y-3">
-                  <div className="bg-muted p-3 rounded-lg border-l-4 border-l-green-500">
-                    <div className="font-semibold text-sm">Teams Administrator</div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      ✅ Recommended - Provides necessary permissions for phone number assignment and voice routing policies
-                    </div>
-                  </div>
-                  <div className="bg-muted p-3 rounded-lg">
-                    <div className="font-semibold text-sm">Global Administrator</div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      ✅ Works but provides more permissions than needed
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold mb-3">Server Prerequisites</h3>
-                <ol className="list-decimal list-inside space-y-2 text-sm">
-                  <li><strong>PowerShell 7.x</strong> must be installed (tested with 7.4.2)</li>
-                  <li><strong>MicrosoftTeams PowerShell module</strong> must be installed:
-                    <div className="bg-muted p-3 rounded-lg font-mono text-sm mt-2">
-                      Install-Module -Name MicrosoftTeams -Force -AllowClobber
-                    </div>
-                  </li>
-                  <li>Verify installation:
-                    <div className="bg-muted p-3 rounded-lg font-mono text-sm mt-2">
-                      Get-Module -ListAvailable -Name MicrosoftTeams
-                    </div>
-                  </li>
-                </ol>
-              </div>
-
-              <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h4 className="font-semibold text-sm mb-2">🧪 Test Module Installation</h4>
-                    <p className="text-sm">
-                      Click the button to verify that the MicrosoftTeams PowerShell module is properly installed on this server.
-                    </p>
-                  </div>
-                  <Button
-                    onClick={testTeamsModule}
-                    disabled={testingModule}
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0"
-                    data-testid="button-test-teams-module"
-                  >
-                    {testingModule ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Testing...
-                      </>
-                    ) : (
-                      <>
-                        <PlayCircle className="h-4 w-4 mr-2" />
-                        Test Module
-                      </>
-                    )}
-                  </Button>
-                </div>
-                
-                {moduleTestResult && (
-                  <div className={`mt-4 p-3 rounded-lg text-sm font-mono whitespace-pre-wrap ${
-                    moduleTestResult.success 
-                      ? "bg-green-100 dark:bg-green-900/30 text-green-900 dark:text-green-100" 
-                      : "bg-red-100 dark:bg-red-900/30 text-red-900 dark:text-red-100"
-                  }`}>
-                    {moduleTestResult.output}
-                  </div>
-                )}
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold mb-3">Authentication Requirements</h3>
-                <div className="space-y-3">
-                  <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
-                    <h4 className="font-semibold text-sm mb-2">⚠️ Basic Authentication Required</h4>
-                    <p className="text-sm">
-                      The service account must support <strong>username/password authentication</strong>. Accounts with MFA enabled or modern authentication requirements may not work with automated PowerShell scripts.
-                    </p>
-                  </div>
-                  <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                    <h4 className="font-semibold text-sm mb-2">💡 Recommended Setup</h4>
-                    <ol className="list-decimal list-inside space-y-1 text-sm mt-2">
-                      <li>Create a dedicated service account (e.g., <code className="bg-muted px-1 rounded">teamsadmin@tenant.onmicrosoft.com</code>)</li>
-                      <li>Assign <strong>Teams Administrator</strong> role</li>
-                      <li>Use a strong, unique password (store securely)</li>
-                      <li><strong>Do not enable MFA</strong> on this service account</li>
-                      <li>Configure conditional access to restrict sign-in to specific IPs if needed</li>
-                    </ol>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold mb-3">Common Issues & Solutions</h3>
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="font-semibold text-sm mb-2">❌ "Test Connection" button fails</h4>
-                    <div className="bg-muted p-3 rounded-lg text-sm space-y-2">
-                      <p><strong>Possible causes:</strong></p>
-                      <ul className="list-disc list-inside ml-4 space-y-1 text-xs">
-                        <li>MicrosoftTeams PowerShell module not installed on server</li>
-                        <li>MFA enabled on the service account</li>
-                        <li>Conditional access policies blocking authentication</li>
-                        <li>Invalid credentials</li>
-                        <li>Network connectivity issues</li>
-                      </ul>
-                      <p className="mt-3"><strong>Solutions:</strong></p>
-                      <ul className="list-disc list-inside ml-4 space-y-1 text-xs">
-                        <li>Install MicrosoftTeams module on the server</li>
-                        <li>Disable MFA on the service account (use conditional access for IP restrictions instead)</li>
-                        <li>Verify credentials are correct</li>
-                        <li>Check that the account has Teams Administrator role</li>
-                      </ul>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h4 className="font-semibold text-sm mb-2">❌ "Permission denied" errors during operations</h4>
-                    <div className="bg-muted p-3 rounded-lg text-sm space-y-2">
-                      <p><strong>Solution:</strong> Verify the service account has <strong>Teams Administrator</strong> or <strong>Global Administrator</strong> role in Azure AD</p>
-                    </div>
-                  </div>
-
-                  <div>
-                    <h4 className="font-semibold text-sm mb-2">❌ Phone number assignment fails</h4>
-                    <div className="bg-muted p-3 rounded-lg text-sm space-y-2">
-                      <p><strong>Prerequisites for phone number assignment:</strong></p>
-                      <ul className="list-disc list-inside ml-4 space-y-1 text-xs">
-                        <li>User must have a Teams license assigned</li>
-                        <li>User must have Teams Phone System (MCOEV) license</li>
-                        <li>Phone number must be in E.164 format (e.g., +12065551234)</li>
-                        <li>If phone number was set in on-premises AD, clear it first and sync to M365</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold mb-3">Configuring Credentials</h3>
-                <ol className="list-decimal list-inside space-y-2 text-sm">
-                  <li>Sign in to the <strong>Admin Panel</strong></li>
-                  <li>Go to <strong>Customer Tenants</strong></li>
-                  <li>Find the tenant you want to configure</li>
-                  <li>Click the <strong>Terminal icon</strong> (Configure PowerShell)</li>
-                  <li>Enter:
-                    <ul className="list-disc list-inside ml-6 mt-2 space-y-1">
-                      <li><strong>User Principal Name</strong>: Service account UPN (e.g., teamsadmin@tenant.onmicrosoft.com)</li>
-                      <li><strong>Password</strong>: Service account password (encrypted before storage)</li>
-                      <li><strong>Description</strong>: Optional note about the account</li>
-                    </ul>
-                  </li>
-                  <li>Click <strong>Save Credentials</strong></li>
-                  <li>(Optional) Click <strong>Test Connection</strong> to verify (may fail if module not installed, but operations will still work)</li>
-                </ol>
-              </div>
-
-              <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg p-4">
-                <h4 className="font-semibold text-sm mb-2">✅ Security Notes</h4>
-                <ul className="list-disc list-inside space-y-1 text-sm">
-                  <li>Passwords are encrypted with AES-256-GCM before storage</li>
-                  <li>Credentials are passed to PowerShell via environment variables (not written to disk)</li>
-                  <li>Each tenant has its own optional credentials - not required for all tenants</li>
-                  <li>Credentials are only used when operators explicitly request PowerShell operations</li>
-                </ul>
-              </div>
-
-              <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                <p className="text-sm">
-                  <strong>💡 Important:</strong> If the "Test Connection" button fails but your credentials are valid, the PowerShell operations will still work when operators use them. The test may fail due to MFA or module installation, but actual operations bypass these issues.
-                </p>
-              </div>
               </div>
             </CardContent>
           </Card>
