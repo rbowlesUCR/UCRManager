@@ -387,10 +387,403 @@ Get-ChildItem -Path Cert:\\LocalMachine\\My | ForEach-Object {
     }
   });
 
+  // ===== NUMBER MANAGEMENT DEBUG ENDPOINTS =====
+
+  // Seed test phone numbers for a tenant
+  app.post("/api/debug/numbers/seed/:tenantId", checkDebugEnabled, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { count = 10 } = req.body;
+
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      const createdNumbers = [];
+      const carriers = ["AT&T", "Verizon", "T-Mobile", "Sprint", "Bandwidth"];
+      const locations = ["New York", "Los Angeles", "Chicago", "Houston", "Phoenix"];
+      const policies = ["Default", "US-Policy", "International", "Emergency-Only"];
+      const statuses = ["available", "used", "reserved", "aging"];
+      const types = ["did", "extension", "toll-free", "mailbox"];
+
+      for (let i = 0; i < count; i++) {
+        const phoneNumber = await storage.createPhoneNumber({
+          tenantId,
+          lineUri: `tel:+1555${String(Math.floor(Math.random() * 10000000)).padStart(7, '0')}`,
+          displayName: `Test User ${i + 1}`,
+          userPrincipalName: `testuser${i + 1}@${tenant.tenantName.toLowerCase().replace(/\s/g, '')}.com`,
+          carrier: carriers[Math.floor(Math.random() * carriers.length)],
+          location: locations[Math.floor(Math.random() * locations.length)],
+          usageLocation: "US",
+          onlineVoiceRoutingPolicy: policies[Math.floor(Math.random() * policies.length)],
+          numberType: types[Math.floor(Math.random() * types.length)] as any,
+          status: statuses[Math.floor(Math.random() * statuses.length)] as any,
+          notes: `Test number ${i + 1} - Auto-generated for testing`,
+          tags: `test,debug,seed-${Date.now()}`,
+          numberRange: "+1555123xxxx",
+          createdBy: "debug-system",
+          lastModifiedBy: "debug-system",
+        });
+        createdNumbers.push(phoneNumber);
+      }
+
+      res.json({
+        success: true,
+        count: createdNumbers.length,
+        numbers: createdNumbers,
+        message: `Successfully seeded ${createdNumbers.length} test phone numbers`
+      });
+    } catch (error) {
+      console.error("Debug seed numbers error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+    }
+  });
+
+  // Get all numbers for a tenant with detailed stats
+  app.get("/api/debug/numbers/list/:tenantId", checkDebugEnabled, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { status, numberType } = req.query;
+
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      const filters: any = { tenantId };
+      if (status) filters.status = status;
+      if (numberType) filters.numberType = numberType;
+
+      const numbers = await storage.getPhoneNumbers(filters);
+      const statistics = await storage.getPhoneNumberStatistics(tenantId);
+
+      res.json({
+        success: true,
+        tenant: tenant.tenantName,
+        filters,
+        count: numbers.length,
+        statistics,
+        numbers: numbers.slice(0, 50), // Limit to first 50 for debug display
+        hasMore: numbers.length > 50
+      });
+    } catch (error) {
+      console.error("Debug list numbers error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Test CSV parsing
+  app.post("/api/debug/numbers/test-csv-parse", checkDebugEnabled, async (req, res) => {
+    try {
+      const { csvData } = req.body;
+
+      if (!csvData) {
+        return res.status(400).json({ error: "csvData is required in request body" });
+      }
+
+      // Simple CSV parser for testing
+      const lines = csvData.split('\n').map((line: string) => line.trim()).filter((line: string) => line.length > 0);
+      if (lines.length < 2) {
+        return res.status(400).json({ error: "CSV must have at least a header row and one data row" });
+      }
+
+      const headers = lines[0].split(',').map((h: string) => h.trim().replace(/^"|"$/g, ''));
+      const parsedRows = [];
+
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map((v: string) => v.trim().replace(/^"|"$/g, ''));
+        const row: any = {};
+        headers.forEach((header, index) => {
+          row[header] = values[index] || '';
+        });
+        parsedRows.push(row);
+      }
+
+      res.json({
+        success: true,
+        rowCount: parsedRows.length,
+        headers,
+        parsedRows,
+        sample: parsedRows.slice(0, 5)
+      });
+    } catch (error) {
+      console.error("Debug CSV parse error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Test bulk update
+  app.post("/api/debug/numbers/test-bulk-update/:tenantId", checkDebugEnabled, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { count = 5, updates } = req.body;
+
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      // Get some numbers to update
+      const numbers = await storage.getPhoneNumbers({ tenantId });
+      const numbersToUpdate = numbers.slice(0, Math.min(count, numbers.length));
+
+      if (numbersToUpdate.length === 0) {
+        return res.status(400).json({ error: "No numbers found to update. Seed some numbers first." });
+      }
+
+      const results = [];
+      for (const number of numbersToUpdate) {
+        const updated = await storage.updatePhoneNumber(number.id, {
+          ...updates,
+          lastModifiedBy: "debug-system"
+        });
+        results.push(updated);
+      }
+
+      res.json({
+        success: true,
+        updatedCount: results.length,
+        updates,
+        numbers: results
+      });
+    } catch (error) {
+      console.error("Debug bulk update error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Test next available number finder
+  app.get("/api/debug/numbers/next-available/:tenantId", checkDebugEnabled, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { numberRange } = req.query;
+
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      if (!numberRange || typeof numberRange !== 'string') {
+        return res.status(400).json({ error: "numberRange query parameter is required (e.g., +1555123xxxx)" });
+      }
+
+      // Get all numbers in this range
+      const numbersInRange = await storage.getPhoneNumbersByRange(tenantId, numberRange);
+
+      // Extract the pattern (replace x's with actual range)
+      const pattern = numberRange.replace(/x/g, '\\d');
+      const regex = new RegExp(pattern);
+
+      // Find all used numbers matching the pattern
+      const usedNumbers = numbersInRange
+        .filter(n => regex.test(n.lineUri))
+        .map(n => n.lineUri);
+
+      res.json({
+        success: true,
+        tenant: tenant.tenantName,
+        numberRange,
+        pattern,
+        usedCount: usedNumbers.length,
+        usedNumbers: usedNumbers.slice(0, 20),
+        message: "Use this data to implement smart next-available logic"
+      });
+    } catch (error) {
+      console.error("Debug next available error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Clean up test numbers (remove all numbers with debug tag)
+  app.delete("/api/debug/numbers/cleanup/:tenantId", checkDebugEnabled, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      const numbers = await storage.getPhoneNumbers({ tenantId });
+      const debugNumbers = numbers.filter((n: any) =>
+        n.tags && (n.tags.includes('test') || n.tags.includes('debug'))
+      );
+
+      let deletedCount = 0;
+      for (const number of debugNumbers) {
+        await storage.deletePhoneNumber(number.id);
+        deletedCount++;
+      }
+
+      res.json({
+        success: true,
+        deletedCount,
+        message: `Cleaned up ${deletedCount} test/debug numbers`
+      });
+    } catch (error) {
+      console.error("Debug cleanup error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Test statistics endpoint
+  app.get("/api/debug/numbers/statistics/:tenantId", checkDebugEnabled, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      const stats = await storage.getPhoneNumberStatistics(tenantId);
+
+      res.json({
+        success: true,
+        tenant: tenant.tenantName,
+        statistics: stats,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error("Debug statistics error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // ===== LIFECYCLE DEBUGGING ENDPOINTS =====
+
+  // Manually trigger a lifecycle check
+  app.post("/api/debug/lifecycle/run-check", checkDebugEnabled, async (req, res) => {
+    try {
+      const { lifecycleManager } = await import("./lifecycle-manager");
+      const result = await lifecycleManager.runLifecycleCheck();
+      res.json({
+        success: true,
+        result,
+        message: "Lifecycle check completed successfully"
+      });
+    } catch (error) {
+      console.error("Debug lifecycle check error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+    }
+  });
+
+  // Get lifecycle statistics
+  app.get("/api/debug/lifecycle/stats", checkDebugEnabled, async (req, res) => {
+    try {
+      const { lifecycleManager } = await import("./lifecycle-manager");
+      const stats = await lifecycleManager.getLifecycleStats();
+      res.json({
+        success: true,
+        stats,
+        message: "Lifecycle statistics retrieved successfully"
+      });
+    } catch (error) {
+      console.error("Debug lifecycle stats error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+    }
+  });
+
+  // Create test aging scenario
+  app.post("/api/debug/lifecycle/test-aging/:tenantId", checkDebugEnabled, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { count = 5 } = req.body;
+
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      // Create numbers with different aging scenarios
+      const testNumbers = [];
+      const now = new Date();
+
+      for (let i = 0; i < count; i++) {
+        const agingUntil = new Date(now);
+
+        // Create numbers with different expiration dates
+        if (i === 0) {
+          // Already expired (should transition immediately)
+          agingUntil.setDate(agingUntil.getDate() - 1);
+        } else if (i === 1) {
+          // Expires in 1 day
+          agingUntil.setDate(agingUntil.getDate() + 1);
+        } else if (i === 2) {
+          // Expires in 7 days
+          agingUntil.setDate(agingUntil.getDate() + 7);
+        } else {
+          // Expires in 30+ days
+          agingUntil.setDate(agingUntil.getDate() + 30 + i);
+        }
+
+        const number = await storage.createPhoneNumber({
+          tenantId,
+          lineUri: `tel:+1555999${String(8000 + i).padStart(4, '0')}`,
+          displayName: `Test Aging Number ${i + 1}`,
+          userPrincipalName: `test.aging${i + 1}@test.com`,
+          numberType: "did",
+          status: "aging",
+          agingUntil,
+          notes: `Test aging number - expires ${agingUntil.toISOString()}`,
+          tags: `test,debug,aging,lifecycle-test-${Date.now()}`,
+          numberRange: "+1555999xxxx",
+          createdBy: "debug-system",
+          lastModifiedBy: "debug-system",
+        });
+
+        testNumbers.push({
+          id: number.id,
+          lineUri: number.lineUri,
+          status: number.status,
+          agingUntil: number.agingUntil,
+          daysUntilExpiry: Math.ceil((agingUntil.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+        });
+      }
+
+      res.json({
+        success: true,
+        count: testNumbers.length,
+        numbers: testNumbers,
+        message: `Created ${testNumbers.length} test aging numbers with various expiration dates`,
+        nextAction: "Run POST /api/debug/lifecycle/run-check to test aging transitions"
+      });
+    } catch (error) {
+      console.error("Debug test aging error:", error);
+      res.status(500).json({
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+    }
+  });
+
   console.log(`
   ┌─────────────────────────────────────────────────────┐
   │  🔧 DEBUG ENDPOINTS AVAILABLE                       │
   ├─────────────────────────────────────────────────────┤
+  │  PowerShell Debugging:                              │
   │  GET  /api/debug/status                             │
   │  GET  /api/debug/powershell/credentials/:tenantId   │
   │  POST /api/debug/powershell/test-cert-connection/:tenantId │
@@ -398,6 +791,20 @@ Get-ChildItem -Path Cert:\\LocalMachine\\My | ForEach-Object {
   │  POST /api/debug/powershell/execute/:tenantId       │
   │  POST /api/debug/powershell/check-certificate/:tenantId │
   │  GET  /api/debug/powershell/list-certificates       │
+  ├─────────────────────────────────────────────────────┤
+  │  Number Management Debugging:                       │
+  │  POST /api/debug/numbers/seed/:tenantId             │
+  │  GET  /api/debug/numbers/list/:tenantId             │
+  │  POST /api/debug/numbers/test-csv-parse             │
+  │  POST /api/debug/numbers/test-bulk-update/:tenantId │
+  │  GET  /api/debug/numbers/next-available/:tenantId   │
+  │  DELETE /api/debug/numbers/cleanup/:tenantId        │
+  │  GET  /api/debug/numbers/statistics/:tenantId       │
+  ├─────────────────────────────────────────────────────┤
+  │  Number Lifecycle Debugging:                        │
+  │  POST /api/debug/lifecycle/run-check                │
+  │  GET  /api/debug/lifecycle/stats                    │
+  │  POST /api/debug/lifecycle/test-aging/:tenantId     │
   ├─────────────────────────────────────────────────────┤
   │  To disable: Set DEBUG_MODE=false                   │
   └─────────────────────────────────────────────────────┘

@@ -14,7 +14,7 @@ import {
   invalidateMsalClientCache,
 } from "./auth";
 import { getGraphClient, getTeamsVoiceUsers, getVoiceRoutingPolicies, assignPhoneNumberAndPolicy, validateTenantPermissions } from "./graph";
-import { insertCustomerTenantSchema, insertAuditLogSchema, insertConfigurationProfileSchema, insertTenantPowershellCredentialsSchema, type InsertOperatorConfig, type InsertCustomerTenant } from "@shared/schema";
+import { insertCustomerTenantSchema, insertAuditLogSchema, insertConfigurationProfileSchema, insertTenantPowershellCredentialsSchema, insertPhoneNumberInventorySchema, type InsertOperatorConfig, type InsertCustomerTenant } from "@shared/schema";
 import { encrypt, decrypt } from "./encryption";
 import {
   testPowerShellConnectivity,
@@ -1058,6 +1058,544 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting profile:", error);
       res.status(500).json({ error: "Failed to delete profile" });
+    }
+  });
+
+  // ===== PHONE NUMBER INVENTORY ROUTES =====
+
+  // Get all phone numbers for a tenant
+  app.get("/api/numbers", requireOperatorAuth, async (req, res) => {
+    try {
+      const { tenantId, status, numberType } = req.query;
+
+      if (!tenantId || typeof tenantId !== "string") {
+        return res.status(400).json({ error: "Tenant ID is required" });
+      }
+
+      const filters: any = { tenantId };
+      if (status && typeof status === "string") filters.status = status;
+      if (numberType && typeof numberType === "string") filters.numberType = numberType;
+
+      const numbers = await storage.getPhoneNumbers(filters);
+      res.json(numbers);
+    } catch (error) {
+      console.error("Error fetching phone numbers:", error);
+      res.status(500).json({ error: "Failed to fetch phone numbers" });
+    }
+  });
+
+  // Create new phone number
+  app.post("/api/numbers", requireOperatorAuth, async (req, res) => {
+    try {
+      const operatorEmail = req.session.user?.email || "unknown";
+
+      const result = insertPhoneNumberInventorySchema.safeParse({
+        ...req.body,
+        createdBy: operatorEmail,
+        lastModifiedBy: operatorEmail,
+      });
+
+      if (!result.success) {
+        return res.status(400).json({ error: "Invalid phone number data", details: result.error });
+      }
+
+      // Verify tenant exists
+      const tenant = await storage.getTenant(result.data.tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      // Check for duplicate line URI within tenant
+      const existing = await storage.getPhoneNumberByLineUri(result.data.tenantId, result.data.lineUri);
+      if (existing) {
+        return res.status(409).json({ error: "Phone number already exists for this tenant" });
+      }
+
+      const phoneNumber = await storage.createPhoneNumber(result.data);
+      res.status(201).json(phoneNumber);
+    } catch (error) {
+      console.error("Error creating phone number:", error);
+      res.status(500).json({ error: "Failed to create phone number" });
+    }
+  });
+
+  // Bulk import phone numbers
+  app.post("/api/numbers/bulk-import", requireOperatorAuth, async (req, res) => {
+    try {
+      const operatorEmail = req.session.user?.email || "unknown";
+      const { tenantId, numbers } = req.body;
+
+      if (!tenantId || !Array.isArray(numbers)) {
+        return res.status(400).json({ error: "tenantId and numbers array are required" });
+      }
+
+      // Verify tenant exists
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      const results = {
+        success: [] as any[],
+        errors: [] as any[],
+      };
+
+      for (const num of numbers) {
+        try {
+          const result = insertPhoneNumberInventorySchema.safeParse({
+            ...num,
+            tenantId,
+            createdBy: operatorEmail,
+            lastModifiedBy: operatorEmail,
+          });
+
+          if (!result.success) {
+            results.errors.push({ lineUri: num.lineUri, error: "Validation failed", details: result.error });
+            continue;
+          }
+
+          // Check for duplicate
+          const existing = await storage.getPhoneNumberByLineUri(tenantId, result.data.lineUri);
+          if (existing) {
+            results.errors.push({ lineUri: result.data.lineUri, error: "Number already exists" });
+            continue;
+          }
+
+          const phoneNumber = await storage.createPhoneNumber(result.data);
+          results.success.push(phoneNumber);
+        } catch (error) {
+          results.errors.push({ lineUri: num.lineUri, error: "Failed to create" });
+        }
+      }
+
+      res.json(results);
+    } catch (error) {
+      console.error("Error bulk importing phone numbers:", error);
+      res.status(500).json({ error: "Failed to bulk import phone numbers" });
+    }
+  });
+
+  // Update phone number
+  app.patch("/api/numbers/:id", requireOperatorAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+      const operatorEmail = req.session.user?.email || "unknown";
+
+      // Verify number exists
+      const existingNumber = await storage.getPhoneNumber(id);
+      if (!existingNumber) {
+        return res.status(404).json({ error: "Phone number not found" });
+      }
+
+      // Add lastModifiedBy to updates
+      const updatesWithAudit = {
+        ...updates,
+        lastModifiedBy: operatorEmail,
+      };
+
+      const phoneNumber = await storage.updatePhoneNumber(id, updatesWithAudit);
+      res.json(phoneNumber);
+    } catch (error) {
+      console.error("Error updating phone number:", error);
+      res.status(500).json({ error: "Failed to update phone number" });
+    }
+  });
+
+  // Bulk update phone numbers
+  app.patch("/api/numbers/bulk-update", requireOperatorAuth, async (req, res) => {
+    try {
+      const { ids, updates } = req.body;
+      const operatorEmail = req.session.user?.email || "unknown";
+
+      if (!Array.isArray(ids) || !updates) {
+        return res.status(400).json({ error: "ids array and updates object are required" });
+      }
+
+      const updatesWithAudit = {
+        ...updates,
+        lastModifiedBy: operatorEmail,
+      };
+
+      const results = {
+        success: [] as any[],
+        errors: [] as any[],
+      };
+
+      for (const id of ids) {
+        try {
+          const phoneNumber = await storage.updatePhoneNumber(id, updatesWithAudit);
+          results.success.push(phoneNumber);
+        } catch (error) {
+          results.errors.push({ id, error: "Failed to update" });
+        }
+      }
+
+      res.json(results);
+    } catch (error) {
+      console.error("Error bulk updating phone numbers:", error);
+      res.status(500).json({ error: "Failed to bulk update phone numbers" });
+    }
+  });
+
+  // Delete phone number
+  app.delete("/api/numbers/:id", requireOperatorAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Verify number exists
+      const existingNumber = await storage.getPhoneNumber(id);
+      if (!existingNumber) {
+        return res.status(404).json({ error: "Phone number not found" });
+      }
+
+      await storage.deletePhoneNumber(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting phone number:", error);
+      res.status(500).json({ error: "Failed to delete phone number" });
+    }
+  });
+
+  // Find next available number in a range
+  app.post("/api/numbers/next-available", requireOperatorAuth, async (req, res) => {
+    try {
+      const { tenantId, numberRange, status = "available" } = req.body;
+
+      if (!tenantId || !numberRange) {
+        return res.status(400).json({ error: "tenantId and numberRange are required" });
+      }
+
+      // Get all numbers in the range
+      const numbers = await storage.getPhoneNumbersByRange(tenantId, numberRange);
+
+      // Parse the number range pattern
+      // Examples: "+1555123xxxx", "tel:+1555123xxxx", "1234xxx" (extensions)
+      const pattern = numberRange.toLowerCase();
+
+      // Check if pattern contains 'x' characters
+      if (!pattern.includes('x')) {
+        return res.status(400).json({
+          error: "Number range must contain 'x' characters to represent variable digits",
+          example: "+1555123xxxx or 1234xxx"
+        });
+      }
+
+      // Extract prefix and determine the variable portion
+      const xIndex = pattern.indexOf('x');
+      const prefix = numberRange.substring(0, xIndex);
+      const variableLength = (numberRange.match(/x/gi) || []).length;
+
+      // Calculate the maximum possible number for this range
+      const maxNumber = Math.pow(10, variableLength) - 1;
+
+      // Extract used numbers and parse their variable portions
+      const usedVariableNumbers = new Set<number>();
+      for (const num of numbers) {
+        const lineUri = num.lineUri.toLowerCase();
+
+        // Handle both "tel:+1..." and "+1..." formats
+        const normalizedUri = lineUri.startsWith('tel:') ? lineUri.substring(4) : lineUri;
+        const normalizedPrefix = prefix.toLowerCase().startsWith('tel:')
+          ? prefix.substring(4).toLowerCase()
+          : prefix.toLowerCase();
+
+        // Check if this number matches our prefix
+        if (normalizedUri.startsWith(normalizedPrefix)) {
+          const variablePart = normalizedUri.substring(normalizedPrefix.length);
+          // Extract only digits from the variable part
+          const digits = variablePart.match(/\d+/);
+          if (digits && digits[0].length === variableLength) {
+            usedVariableNumbers.add(parseInt(digits[0], 10));
+          }
+        }
+      }
+
+      // Find the next available number by checking sequential numbers
+      let nextAvailable: number | null = null;
+      for (let i = 0; i <= maxNumber; i++) {
+        if (!usedVariableNumbers.has(i)) {
+          nextAvailable = i;
+          break;
+        }
+      }
+
+      if (nextAvailable === null) {
+        return res.json({
+          numberRange,
+          available: false,
+          message: "All numbers in this range are used",
+          totalCapacity: maxNumber + 1,
+          usedCount: usedVariableNumbers.size,
+        });
+      }
+
+      // Format the next available number with proper padding
+      const nextVariableDigits = String(nextAvailable).padStart(variableLength, '0');
+
+      // Construct the full line URI based on the prefix format
+      let nextLineUri: string;
+      if (prefix.toLowerCase().startsWith('tel:')) {
+        nextLineUri = prefix + nextVariableDigits;
+      } else if (prefix.startsWith('+') || prefix.startsWith('1')) {
+        // DID format - add tel: prefix
+        nextLineUri = 'tel:' + prefix + nextVariableDigits;
+      } else {
+        // Extension format - no tel: prefix
+        nextLineUri = prefix + nextVariableDigits;
+      }
+
+      res.json({
+        numberRange,
+        available: true,
+        nextAvailable: nextLineUri,
+        nextVariableDigits,
+        totalCapacity: maxNumber + 1,
+        usedCount: usedVariableNumbers.size,
+        remainingCapacity: (maxNumber + 1) - usedVariableNumbers.size,
+        utilizationPercent: Math.round((usedVariableNumbers.size / (maxNumber + 1)) * 100),
+      });
+    } catch (error) {
+      console.error("Error finding next available number:", error);
+      res.status(500).json({ error: "Failed to find next available number" });
+    }
+  });
+
+  // Get number statistics for a tenant
+  app.get("/api/numbers/statistics", requireOperatorAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.query;
+
+      if (!tenantId || typeof tenantId !== "string") {
+        return res.status(400).json({ error: "Tenant ID is required" });
+      }
+
+      const stats = await storage.getPhoneNumberStatistics(tenantId);
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching phone number statistics:", error);
+      res.status(500).json({ error: "Failed to fetch statistics" });
+    }
+  });
+
+  // ===== PHONE NUMBER LIFECYCLE MANAGEMENT ROUTES =====
+
+  // Reserve a phone number
+  app.post("/api/numbers/:id/reserve", requireOperatorAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { reservedBy } = req.body;
+      const operatorEmail = req.session.user?.email || "unknown";
+
+      if (!reservedBy) {
+        return res.status(400).json({ error: "reservedBy field is required" });
+      }
+
+      const { lifecycleManager } = await import("./lifecycle-manager");
+      const success = await lifecycleManager.reserveNumber(id, reservedBy, operatorEmail);
+
+      if (success) {
+        res.json({ success: true, message: "Number reserved successfully" });
+      } else {
+        res.status(400).json({ error: "Failed to reserve number" });
+      }
+    } catch (error) {
+      console.error("Error reserving number:", error);
+      res.status(500).json({ error: "Failed to reserve number" });
+    }
+  });
+
+  // Release a reserved number (moves to aging)
+  app.post("/api/numbers/:id/release", requireOperatorAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const operatorEmail = req.session.user?.email || "unknown";
+
+      const { lifecycleManager } = await import("./lifecycle-manager");
+      const success = await lifecycleManager.releaseReservedNumber(id, operatorEmail);
+
+      if (success) {
+        res.json({ success: true, message: "Number released to aging status" });
+      } else {
+        res.status(400).json({ error: "Failed to release number" });
+      }
+    } catch (error) {
+      console.error("Error releasing number:", error);
+      res.status(500).json({ error: "Failed to release number" });
+    }
+  });
+
+  // Manually trigger lifecycle check
+  app.post("/api/numbers/lifecycle/run", requireOperatorAuth, async (req, res) => {
+    try {
+      const { lifecycleManager } = await import("./lifecycle-manager");
+      const result = await lifecycleManager.runLifecycleCheck();
+      res.json(result);
+    } catch (error) {
+      console.error("Error running lifecycle check:", error);
+      res.status(500).json({ error: "Failed to run lifecycle check" });
+    }
+  });
+
+  // Get lifecycle statistics
+  app.get("/api/numbers/lifecycle/stats", requireOperatorAuth, async (req, res) => {
+    try {
+      const { lifecycleManager } = await import("./lifecycle-manager");
+      const stats = await lifecycleManager.getLifecycleStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Error fetching lifecycle stats:", error);
+      res.status(500).json({ error: "Failed to fetch lifecycle stats" });
+    }
+  });
+
+  // ===== TEAMS SYNC ROUTES =====
+
+  // Sync phone numbers from Teams and compare with local database
+  app.post("/api/numbers/sync-from-teams/:tenantId", requireOperatorAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      // Fetch phone numbers from local database
+      const localNumbers = await storage.getPhoneNumbers({ tenantId });
+      const localMap = new Map(localNumbers.map(n => [n.lineUri, n]));
+
+      // Fetch phone numbers from Teams using PowerShell
+      const { getTeamsPhoneNumbers } = await import("./teams-sync");
+      const teamsNumbers = await getTeamsPhoneNumbers(tenant);
+
+      // Compare and create diff
+      const toAdd: any[] = [];
+      const toUpdate: any[] = [];
+      const unchanged: any[] = [];
+
+      for (const teamsNum of teamsNumbers) {
+        const local = localMap.get(teamsNum.lineUri);
+
+        if (!local) {
+          // New number from Teams
+          toAdd.push({
+            action: "add",
+            lineUri: teamsNum.lineUri,
+            displayName: teamsNum.displayName,
+            userPrincipalName: teamsNum.userPrincipalName,
+            onlineVoiceRoutingPolicy: teamsNum.onlineVoiceRoutingPolicy,
+            status: teamsNum.lineUri ? "used" : "available",
+            numberType: "did",
+          });
+        } else {
+          // Check if needs update
+          const needsUpdate =
+            local.displayName !== teamsNum.displayName ||
+            local.userPrincipalName !== teamsNum.userPrincipalName ||
+            local.onlineVoiceRoutingPolicy !== teamsNum.onlineVoiceRoutingPolicy;
+
+          if (needsUpdate) {
+            toUpdate.push({
+              action: "update",
+              id: local.id,
+              lineUri: teamsNum.lineUri,
+              local: {
+                displayName: local.displayName,
+                userPrincipalName: local.userPrincipalName,
+                onlineVoiceRoutingPolicy: local.onlineVoiceRoutingPolicy,
+              },
+              teams: {
+                displayName: teamsNum.displayName,
+                userPrincipalName: teamsNum.userPrincipalName,
+                onlineVoiceRoutingPolicy: teamsNum.onlineVoiceRoutingPolicy,
+              },
+            });
+          } else {
+            unchanged.push({
+              action: "unchanged",
+              lineUri: teamsNum.lineUri,
+              displayName: teamsNum.displayName,
+            });
+          }
+        }
+      }
+
+      res.json({
+        summary: {
+          teamsTotal: teamsNumbers.length,
+          localTotal: localNumbers.length,
+          toAdd: toAdd.length,
+          toUpdate: toUpdate.length,
+          unchanged: unchanged.length,
+        },
+        changes: {
+          toAdd,
+          toUpdate,
+          unchanged,
+        },
+      });
+    } catch (error) {
+      console.error("Error syncing from Teams:", error);
+      res.status(500).json({
+        error: "Failed to sync from Teams",
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Apply selected sync changes
+  app.post("/api/numbers/apply-sync", requireOperatorAuth, async (req, res) => {
+    try {
+      const { tenantId, selectedChanges } = req.body;
+      const operatorEmail = req.session.user?.email || "unknown";
+
+      if (!tenantId || !selectedChanges || !Array.isArray(selectedChanges)) {
+        return res.status(400).json({ error: "tenantId and selectedChanges array are required" });
+      }
+
+      const results = {
+        added: 0,
+        updated: 0,
+        errors: [] as any[],
+      };
+
+      for (const change of selectedChanges) {
+        try {
+          if (change.action === "add") {
+            await storage.createPhoneNumber({
+              tenantId,
+              lineUri: change.lineUri,
+              displayName: change.displayName || null,
+              userPrincipalName: change.userPrincipalName || null,
+              onlineVoiceRoutingPolicy: change.onlineVoiceRoutingPolicy || null,
+              numberType: change.numberType || "did",
+              status: change.status || "used",
+              createdBy: operatorEmail,
+              lastModifiedBy: operatorEmail,
+            });
+            results.added++;
+          } else if (change.action === "update" && change.id) {
+            await storage.updatePhoneNumber(change.id, {
+              displayName: change.teams.displayName || null,
+              userPrincipalName: change.teams.userPrincipalName || null,
+              onlineVoiceRoutingPolicy: change.teams.onlineVoiceRoutingPolicy || null,
+              lastModifiedBy: operatorEmail,
+            });
+            results.updated++;
+          }
+        } catch (error) {
+          results.errors.push({
+            lineUri: change.lineUri,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      res.json(results);
+    } catch (error) {
+      console.error("Error applying sync changes:", error);
+      res.status(500).json({ error: "Failed to apply sync changes" });
     }
   });
 

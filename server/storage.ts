@@ -7,6 +7,7 @@ import {
   operatorConfig,
   operatorUsers,
   tenantPowershellCredentials,
+  phoneNumberInventory,
   type AdminUser,
   type InsertAdminUser,
   type CustomerTenant,
@@ -21,9 +22,11 @@ import {
   type InsertOperatorUser,
   type TenantPowershellCredentials,
   type InsertTenantPowershellCredentials,
+  type PhoneNumberInventory,
+  type InsertPhoneNumberInventory,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 
 export interface IStorage {
   // Admin users
@@ -318,6 +321,120 @@ export class DatabaseStorage implements IStorage {
       .where(eq(tenantPowershellCredentials.id, id))
       .returning();
     return result.length > 0;
+  }
+
+  // ===== PHONE NUMBER INVENTORY METHODS =====
+
+  // Get phone numbers with optional filtering
+  async getPhoneNumbers(filters: {
+    tenantId: string;
+    status?: string;
+    numberType?: string;
+  }): Promise<PhoneNumberInventory[]> {
+    const conditions = [eq(phoneNumberInventory.tenantId, filters.tenantId)];
+
+    if (filters.status) {
+      conditions.push(eq(phoneNumberInventory.status, filters.status));
+    }
+    if (filters.numberType) {
+      conditions.push(eq(phoneNumberInventory.numberType, filters.numberType));
+    }
+
+    const numbers = await db
+      .select()
+      .from(phoneNumberInventory)
+      .where(and(...conditions))
+      .orderBy(desc(phoneNumberInventory.createdAt));
+
+    return numbers;
+  }
+
+  // Get single phone number by ID
+  async getPhoneNumber(id: string): Promise<PhoneNumberInventory | undefined> {
+    const [number] = await db
+      .select()
+      .from(phoneNumberInventory)
+      .where(eq(phoneNumberInventory.id, id))
+      .limit(1);
+    return number;
+  }
+
+  // Get phone number by line URI within a tenant (for duplicate checking)
+  async getPhoneNumberByLineUri(tenantId: string, lineUri: string): Promise<PhoneNumberInventory | undefined> {
+    const [number] = await db
+      .select()
+      .from(phoneNumberInventory)
+      .where(and(
+        eq(phoneNumberInventory.tenantId, tenantId),
+        eq(phoneNumberInventory.lineUri, lineUri)
+      ))
+      .limit(1);
+    return number;
+  }
+
+  // Create new phone number
+  async createPhoneNumber(insertNumber: InsertPhoneNumberInventory): Promise<PhoneNumberInventory> {
+    const [created] = await db
+      .insert(phoneNumberInventory)
+      .values(insertNumber)
+      .returning();
+    return created;
+  }
+
+  // Update phone number
+  async updatePhoneNumber(id: string, updates: Partial<InsertPhoneNumberInventory>): Promise<PhoneNumberInventory> {
+    const [updated] = await db
+      .update(phoneNumberInventory)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(phoneNumberInventory.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Delete phone number
+  async deletePhoneNumber(id: string): Promise<boolean> {
+    const result = await db
+      .delete(phoneNumberInventory)
+      .where(eq(phoneNumberInventory.id, id))
+      .returning();
+    return result.length > 0;
+  }
+
+  // Get phone numbers by range
+  async getPhoneNumbersByRange(tenantId: string, numberRange: string): Promise<PhoneNumberInventory[]> {
+    const numbers = await db
+      .select()
+      .from(phoneNumberInventory)
+      .where(eq(phoneNumberInventory.tenantId, tenantId))
+      .where(eq(phoneNumberInventory.numberRange, numberRange))
+      .orderBy(phoneNumberInventory.lineUri);
+    return numbers;
+  }
+
+  // Get phone number statistics for a tenant
+  async getPhoneNumberStatistics(tenantId: string): Promise<any> {
+    const numbers = await db
+      .select()
+      .from(phoneNumberInventory)
+      .where(eq(phoneNumberInventory.tenantId, tenantId));
+
+    const stats = {
+      total: numbers.length,
+      byStatus: {
+        available: numbers.filter(n => n.status === 'available').length,
+        used: numbers.filter(n => n.status === 'used').length,
+        reserved: numbers.filter(n => n.status === 'reserved').length,
+        aging: numbers.filter(n => n.status === 'aging').length,
+      },
+      byType: {
+        did: numbers.filter(n => n.numberType === 'did').length,
+        extension: numbers.filter(n => n.numberType === 'extension').length,
+        tollFree: numbers.filter(n => n.numberType === 'toll-free').length,
+        mailbox: numbers.filter(n => n.numberType === 'mailbox').length,
+      },
+    };
+
+    return stats;
   }
 }
 

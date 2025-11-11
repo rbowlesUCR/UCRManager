@@ -4,6 +4,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { getHttpsOptions } from "./https-config";
 import { setupWebSocketServer } from "./websocket";
+import { lifecycleManager } from "./lifecycle-manager";
 
 const app = express();
 
@@ -103,6 +104,10 @@ app.use((req, res, next) => {
   // Setup WebSocket server for PowerShell sessions
   setupWebSocketServer(serverToListen);
   log('WebSocket server initialized for PowerShell sessions');
+
+  // Start phone number lifecycle manager
+  lifecycleManager.start();
+  log('Phone number lifecycle manager started');
 
   serverToListen.listen(port, "0.0.0.0", () => {
     const protocol = httpsServer ? 'HTTPS' : 'HTTP';
