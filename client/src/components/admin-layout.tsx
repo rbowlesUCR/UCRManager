@@ -1,6 +1,6 @@
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { LogOut, FileText, Settings, ClipboardList, Building, Shield } from "lucide-react";
+import { LogOut, FileText, Settings, ClipboardList, Building, Shield, ToggleLeft } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +34,12 @@ export function AdminLayout({ children }: AdminLayoutProps) {
       label: "Operator Users",
       icon: Shield,
       testId: "nav-operator-users",
+    },
+    {
+      path: "/admin/features",
+      label: "Features",
+      icon: ToggleLeft,
+      testId: "nav-features",
     },
     {
       path: "/admin/documentation",

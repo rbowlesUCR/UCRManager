@@ -8,6 +8,7 @@ import {
   operatorUsers,
   tenantPowershellCredentials,
   phoneNumberInventory,
+  featureFlags,
   type AdminUser,
   type InsertAdminUser,
   type CustomerTenant,
@@ -24,6 +25,8 @@ import {
   type InsertTenantPowershellCredentials,
   type PhoneNumberInventory,
   type InsertPhoneNumberInventory,
+  type FeatureFlag,
+  type InsertFeatureFlag,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and } from "drizzle-orm";
@@ -75,6 +78,11 @@ export interface IStorage {
   createTenantPowershellCredentials(credentials: InsertTenantPowershellCredentials): Promise<TenantPowershellCredentials>;
   updateTenantPowershellCredentials(id: string, updates: Partial<InsertTenantPowershellCredentials>): Promise<TenantPowershellCredentials>;
   deleteTenantPowershellCredentials(id: string): Promise<boolean>;
+
+  // Feature flags
+  getAllFeatureFlags(): Promise<FeatureFlag[]>;
+  getFeatureFlagByKey(featureKey: string): Promise<FeatureFlag | undefined>;
+  updateFeatureFlag(featureKey: string, isEnabled: boolean): Promise<FeatureFlag>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -435,6 +443,33 @@ export class DatabaseStorage implements IStorage {
     };
 
     return stats;
+  }
+
+  // ===== FEATURE FLAGS METHODS =====
+
+  // Get all feature flags
+  async getAllFeatureFlags(): Promise<FeatureFlag[]> {
+    return await db.select().from(featureFlags);
+  }
+
+  // Get a specific feature flag by key
+  async getFeatureFlagByKey(featureKey: string): Promise<FeatureFlag | undefined> {
+    const [flag] = await db
+      .select()
+      .from(featureFlags)
+      .where(eq(featureFlags.featureKey, featureKey))
+      .limit(1);
+    return flag || undefined;
+  }
+
+  // Update a feature flag's enabled status
+  async updateFeatureFlag(featureKey: string, isEnabled: boolean): Promise<FeatureFlag> {
+    const [updated] = await db
+      .update(featureFlags)
+      .set({ isEnabled, updatedAt: new Date() })
+      .where(eq(featureFlags.featureKey, featureKey))
+      .returning();
+    return updated;
   }
 }
 

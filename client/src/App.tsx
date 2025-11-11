@@ -15,6 +15,7 @@ import AdminCustomerTenants from "@/pages/admin-customer-tenants";
 import AdminDocumentation from "@/pages/admin-documentation";
 import AdminSettings from "@/pages/admin-settings";
 import AdminOperatorUsers from "@/pages/admin-operator-users";
+import AdminFeatures from "@/pages/admin-features";
 import NotFound from "@/pages/not-found";
 import type { OperatorSession } from "@shared/schema";
 
@@ -105,6 +106,9 @@ function Router() {
       </Route>
       <Route path="/admin/settings">
         {() => <ProtectedAdminRoute component={AdminSettings} />}
+      </Route>
+      <Route path="/admin/features">
+        {() => <ProtectedAdminRoute component={AdminFeatures} />}
       </Route>
       <Route component={NotFound} />
     </Switch>

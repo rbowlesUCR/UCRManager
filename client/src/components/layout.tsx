@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { LogOut, User, Settings, Phone, Shield, Hash } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
-import type { OperatorSession } from "@shared/schema";
+import type { OperatorSession, FeatureFlag } from "@shared/schema";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -16,6 +16,21 @@ export function Layout({ children }: LayoutProps) {
     queryKey: ["/api/auth/session"],
   });
 
+  // Fetch number management feature flag
+  const { data: numberManagementFlag } = useQuery<FeatureFlag>({
+    queryKey: ["/api/feature-flags/number_management"],
+    enabled: !!session, // Only fetch when user is logged in
+    queryFn: async () => {
+      const res = await fetch("/api/feature-flags/number_management", {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        return { isEnabled: false }; // Default to disabled if fetch fails
+      }
+      return await res.json();
+    },
+  });
+
   const handleLogout = async () => {
     await apiRequest("POST", "/api/auth/logout", {});
     setLocation("/");
@@ -23,6 +38,9 @@ export function Layout({ children }: LayoutProps) {
 
   // Check if user has admin role (either local admin or operator user with admin role)
   const isAdmin = session?.role === "admin";
+
+  // Check if number management feature is enabled
+  const isNumberManagementEnabled = numberManagementFlag?.isEnabled ?? false;
 
   return (
     <div className="min-h-screen bg-background">
@@ -115,16 +133,18 @@ export function Layout({ children }: LayoutProps) {
                 Policy Management
               </Button>
             </Link>
-            <Link href="/numbers">
-              <Button
-                variant={location === "/numbers" ? "default" : "ghost"}
-                className="h-12 rounded-none border-b-2 border-transparent data-[active=true]:border-primary"
-                data-active={location === "/numbers"}
-              >
-                <Hash className="w-4 h-4 mr-2" />
-                Number Management
-              </Button>
-            </Link>
+            {isNumberManagementEnabled && (
+              <Link href="/numbers">
+                <Button
+                  variant={location === "/numbers" ? "default" : "ghost"}
+                  className="h-12 rounded-none border-b-2 border-transparent data-[active=true]:border-primary"
+                  data-active={location === "/numbers"}
+                >
+                  <Hash className="w-4 h-4 mr-2" />
+                  Number Management
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
       </nav>
