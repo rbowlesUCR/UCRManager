@@ -612,7 +612,13 @@ Write-Host "POLICIES_JSON_END"
     }
 
     // Build policy command
-    const policyCommand = `Grant-CsOnlineVoiceRoutingPolicy -Identity '${userPrincipalName}' -PolicyName '${cleanPolicyName}'`;
+    // Special case: "Global" policy must be set to $null (cannot be explicitly assigned)
+    let policyCommand;
+    if (cleanPolicyName.toLowerCase() === 'global') {
+      policyCommand = `Grant-CsOnlineVoiceRoutingPolicy -Identity '${userPrincipalName}' -PolicyName $null`;
+    } else {
+      policyCommand = `Grant-CsOnlineVoiceRoutingPolicy -Identity '${userPrincipalName}' -PolicyName '${cleanPolicyName}'`;
+    }
 
     // Create a cleaner script that captures errors properly
     // NOTE: We don't use 'exit' because it kills the output buffer before error messages are flushed

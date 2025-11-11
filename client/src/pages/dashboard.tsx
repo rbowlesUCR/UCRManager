@@ -126,6 +126,49 @@ export default function Dashboard() {
     },
   });
 
+  // Auto-populate form fields when user voice config is loaded
+  useEffect(() => {
+    if (userVoiceConfig && selectedUser) {
+      // Populate phone number if user has one assigned
+      if (userVoiceConfig.lineUri) {
+        console.log(`[Dashboard] Auto-populating phone number: ${userVoiceConfig.lineUri}`);
+        setPhoneNumber(userVoiceConfig.lineUri);
+        setPhoneValidation(validatePhoneNumber(userVoiceConfig.lineUri));
+      } else {
+        setPhoneNumber("");
+        setPhoneValidation(null);
+      }
+
+      // Populate voice routing policy if user has one assigned
+      if (userVoiceConfig.voiceRoutingPolicy && routingPolicies) {
+        const policyName = userVoiceConfig.voiceRoutingPolicy;
+        console.log(`[Dashboard] Looking for policy to auto-populate: ${policyName}`);
+
+        // Find matching policy by name (policy.name might have "Tag:" prefix, userVoiceConfig doesn't)
+        const matchingPolicy = (routingPolicies as VoiceRoutingPolicy[]).find((p) => {
+          const normalizedPolicyName = p.name.replace(/^Tag:/i, "").trim();
+          const normalizedUserPolicy = policyName.replace(/^Tag:/i, "").trim();
+          return normalizedPolicyName.toLowerCase() === normalizedUserPolicy.toLowerCase();
+        });
+
+        if (matchingPolicy) {
+          console.log(`[Dashboard] Auto-populating policy ID: ${matchingPolicy.id} (${matchingPolicy.name})`);
+          setSelectedPolicy(matchingPolicy.id);
+        } else {
+          console.warn(`[Dashboard] No matching policy found for: ${policyName}`);
+          setSelectedPolicy("");
+        }
+      } else {
+        setSelectedPolicy("");
+      }
+    } else if (!selectedUser) {
+      // Clear fields when no user is selected
+      setPhoneNumber("");
+      setSelectedPolicy("");
+      setPhoneValidation(null);
+    }
+  }, [userVoiceConfig, selectedUser, routingPolicies]);
+
   // Auto-refresh when tenant changes
   useEffect(() => {
     if (selectedTenant) {

@@ -2305,6 +2305,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[Assignment] PowerShell connected successfully, sending assignment command for ${userPrincipalName}`);
       console.log(`[Assignment] Phone: ${phoneNumber}, Policy: ${routingPolicy}`);
 
+      // Generate unique marker for this assignment
+      const uniqueMarker = `ASSIGN_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      console.log(`[Assignment] Using unique marker: ${uniqueMarker}`);
+
       // Capture output from the assignment - aggregate into lines
       let assignmentOutput: string[] = [];
       let assignmentError: string | null = null;
@@ -2342,7 +2346,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sessionId,
         userPrincipalName,
         phoneNumber,
-        routingPolicy
+        routingPolicy,
+        undefined, // locationId
+        uniqueMarker // unique marker for this assignment
       );
 
       if (!success) {
@@ -2351,40 +2357,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[Assignment] Command sent, waiting for PowerShell to complete...`);
 
-      // Wait for the command to complete (event-driven with timeout)
-      // Listen for RESULT: SUCCESS or RESULT: FAILED markers
+      // Wait for the command to complete - looking for THIS assignment's unique markers only
       await new Promise<void>((resolve, reject) => {
         const maxWaitTime = 60000; // 60 seconds max
         const startTime = Date.now();
 
-        // Helper to filter out PowerShell script echo lines
-        const isActualOutput = (line: string) => {
-          return !line.includes(">>") && !line.includes("PS C:\\");
-        };
-
         const checkInterval = setInterval(() => {
           const elapsed = Date.now() - startTime;
+          const actualOutput = assignmentOutput.filter(line => !line.includes(">>") && !line.includes("PS C:\\"));
 
-          // Filter to only actual output (not script echo)
-          const actualOutput = assignmentOutput.filter(isActualOutput);
+          // Look for markers with THIS assignment's unique ID
+          const hasSuccess = actualOutput.some(line => line.includes(`RESULT_SUCCESS:${uniqueMarker}`));
+          const hasFailed = actualOutput.some(line => line.includes(`RESULT_FAILED:${uniqueMarker}`));
+          const hasPhoneSuccess = actualOutput.some(line => line.includes(`SUCCESS_PHONE:${uniqueMarker}`));
+          const hasPolicySuccess = actualOutput.some(line => line.includes(`SUCCESS_POLICY:${uniqueMarker}`));
+          const hasPhoneError = actualOutput.some(line => line.includes(`ERROR_PHONE:${uniqueMarker}`));
+          const hasPolicyError = actualOutput.some(line => line.includes(`ERROR_POLICY:${uniqueMarker}`));
+          const hasMarkerEnd = actualOutput.some(line => line.includes(`MARKER_END:${uniqueMarker}`));
 
-          // Check for completion markers in ACTUAL output only (not script echo)
-          const hasSuccess = actualOutput.some(line => line.includes("RESULT: SUCCESS"));
-          const hasFailed = actualOutput.some(line => line.includes("RESULT: FAILED"));
-          const hasPhoneSuccess = actualOutput.some(line => line.includes("SUCCESS: Phone number assigned"));
-          const hasPolicySuccess = actualOutput.some(line => line.includes("SUCCESS: Voice routing policy assigned"));
-          const hasPhoneError = actualOutput.some(line => line.includes("ERROR_PHONE:"));
-          const hasPolicyError = actualOutput.some(line => line.includes("ERROR_POLICY:"));
-
-          // Log every 5 seconds to avoid spam
-          if (elapsed % 5000 < 500) {
-            console.log(`[Assignment] Wait check (${elapsed}ms): Phone=${hasPhoneSuccess}, Policy=${hasPolicySuccess}, Success=${hasSuccess}, Failed=${hasFailed}`);
+          // Log wait status every 5 seconds
+          if (elapsed > 0 && elapsed % 5000 < 500) {
+            console.log(`[Assignment] Wait check (${elapsed}ms): Phone=${hasPhoneSuccess}, Policy=${hasPolicySuccess}, Success=${hasSuccess}, Failed=${hasFailed}, End=${hasMarkerEnd}`);
           }
 
-          // Success conditions
+          // Success condition
           if (hasSuccess || (hasPhoneSuccess && hasPolicySuccess)) {
             clearInterval(checkInterval);
-            console.log(`[Assignment] Detected completion after ${elapsed}ms`);
+            console.log(`[Assignment] ✓ Detected success after ${elapsed}ms - Phone=${hasPhoneSuccess}, Policy=${hasPolicySuccess}`);
             resolve();
             return;
           }
@@ -2392,7 +2391,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Failure conditions
           if (hasFailed || hasPhoneError || hasPolicyError) {
             clearInterval(checkInterval);
-            console.log(`[Assignment] Detected failure after ${elapsed}ms`);
+            const errorLine = actualOutput.find(line => line.includes(`ERROR`) && line.includes(uniqueMarker));
+            console.log(`[Assignment] ✗ Detected failure after ${elapsed}ms: ${errorLine}`);
             resolve(); // Resolve anyway to proceed with error handling
             return;
           }
@@ -2400,7 +2400,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Timeout
           if (elapsed > maxWaitTime) {
             clearInterval(checkInterval);
-            console.log(`[Assignment] Timeout after ${elapsed}ms`);
+            console.log(`[Assignment] ✗ Timeout after ${maxWaitTime}ms`);
             resolve(); // Resolve to proceed with timeout error
             return;
           }
@@ -2420,26 +2420,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log(`[Assignment] Assignment process completed for ${userPrincipalName}`);
       console.log(`[Assignment] Captured ${assignmentOutput.length} output lines`);
 
-      // Check output for success/failure
-      const hasPhoneSuccess = assignmentOutput.some(line => line.includes("SUCCESS: Phone number assigned"));
-      const hasPolicySuccess = assignmentOutput.some(line => line.includes("SUCCESS: Voice routing policy assigned"));
-      const hasFailed = assignmentOutput.some(line => line.includes("RESULT: FAILED"));
-      const hasSuccess = assignmentOutput.some(line => line.includes("RESULT: SUCCESS"));
+      // Filter to actual output (not script echo)
+      const actualOutput = assignmentOutput.filter(line => !line.includes(">>") && !line.includes("PS C:\\"));
+
+      // Check output for success/failure using unique marker
+      const hasPhoneSuccess = actualOutput.some(line => line.includes(`SUCCESS_PHONE:${uniqueMarker}`));
+      const hasPolicySuccess = actualOutput.some(line => line.includes(`SUCCESS_POLICY:${uniqueMarker}`));
+      const hasFailed = actualOutput.some(line => line.includes(`RESULT_FAILED:${uniqueMarker}`));
+      const hasSuccess = actualOutput.some(line => line.includes(`RESULT_SUCCESS:${uniqueMarker}`));
 
       console.log(`[Assignment] Detection - hasPhoneSuccess: ${hasPhoneSuccess}, hasPolicySuccess: ${hasPolicySuccess}, hasFailed: ${hasFailed}, hasSuccess: ${hasSuccess}`);
 
-      // Extract error messages with new markers
-      // IMPORTANT: Filter out PowerShell script echo lines (containing >> or PS C:\)
-      // We only want actual output, not the script being echoed back
-      const isActualOutput = (line: string) => {
-        return !line.includes(">>") && !line.includes("PS C:\\");
-      };
-
-      const phoneError = assignmentOutput.find(line => isActualOutput(line) && line.includes("ERROR_PHONE:"));
-      const phoneErrorDetails = assignmentOutput.find(line => isActualOutput(line) && line.includes("ERROR_PHONE_DETAILS:"));
-      const policyError = assignmentOutput.find(line => isActualOutput(line) && line.includes("ERROR_POLICY:"));
-      const policyErrorDetails = assignmentOutput.find(line => isActualOutput(line) && line.includes("ERROR_POLICY_DETAILS:"));
-      const failureReason = assignmentOutput.find(line => isActualOutput(line) && line.includes("FAILURE_REASON:"));
+      // Extract error messages with unique marker
+      const phoneError = actualOutput.find(line => line.includes(`ERROR_PHONE:${uniqueMarker}`));
+      const phoneErrorDetails = actualOutput.find(line => line.includes(`ERROR_PHONE_DETAILS:${uniqueMarker}`));
+      const policyError = actualOutput.find(line => line.includes(`ERROR_POLICY:${uniqueMarker}`));
+      const policyErrorDetails = actualOutput.find(line => line.includes(`ERROR_POLICY_DETAILS:${uniqueMarker}`));
+      const failureReason = actualOutput.find(line => line.includes(`FAILURE_REASON:${uniqueMarker}`));
 
       console.log(`[Assignment] Error detection - phoneError: ${!!phoneError}, policyError: ${!!policyError}, failureReason: ${!!failureReason}`);
 
