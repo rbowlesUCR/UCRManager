@@ -1576,11 +1576,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
             numberType: "did",
           });
         } else {
-          // Check if needs update
+          // Check if needs update (including status derived from user assignment)
+          const teamsHasUser = teamsNum.userPrincipalName && teamsNum.userPrincipalName.trim() !== "";
+          const expectedStatus = teamsHasUser ? "used" : "available";
+
           const needsUpdate =
             local.displayName !== teamsNum.displayName ||
             local.userPrincipalName !== teamsNum.userPrincipalName ||
-            local.onlineVoiceRoutingPolicy !== teamsNum.onlineVoiceRoutingPolicy;
+            local.onlineVoiceRoutingPolicy !== teamsNum.onlineVoiceRoutingPolicy ||
+            local.status !== expectedStatus;
 
           if (needsUpdate) {
             toUpdate.push({
@@ -1591,11 +1595,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 displayName: local.displayName,
                 userPrincipalName: local.userPrincipalName,
                 onlineVoiceRoutingPolicy: local.onlineVoiceRoutingPolicy,
+                status: local.status,
               },
               teams: {
                 displayName: teamsNum.displayName,
                 userPrincipalName: teamsNum.userPrincipalName,
                 onlineVoiceRoutingPolicy: teamsNum.onlineVoiceRoutingPolicy,
+                status: expectedStatus,
               },
             });
           } else {
@@ -1650,6 +1656,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       for (const change of selectedChanges) {
         try {
           if (change.action === "add") {
+            // Determine status based on whether number is assigned to a user
+            const hasUser = change.userPrincipalName && change.userPrincipalName.trim() !== "";
             await storage.createPhoneNumber({
               tenantId,
               lineUri: change.lineUri,
@@ -1657,16 +1665,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
               userPrincipalName: change.userPrincipalName || null,
               onlineVoiceRoutingPolicy: change.onlineVoiceRoutingPolicy || null,
               numberType: change.numberType || "did",
-              status: change.status || "used",
+              status: hasUser ? "used" : "available",
               createdBy: operatorEmail,
               lastModifiedBy: operatorEmail,
             });
             results.added++;
           } else if (change.action === "update" && change.id) {
+            // Use status from sync if provided, otherwise derive from user assignment
+            let status: string;
+            if (change.teams.status) {
+              status = change.teams.status;
+            } else {
+              const hasUser = change.teams.userPrincipalName && change.teams.userPrincipalName.trim() !== "";
+              status = hasUser ? "used" : "available";
+            }
+
             await storage.updatePhoneNumber(change.id, {
               displayName: change.teams.displayName || null,
               userPrincipalName: change.teams.userPrincipalName || null,
               onlineVoiceRoutingPolicy: change.teams.onlineVoiceRoutingPolicy || null,
+              status: status,
               lastModifiedBy: operatorEmail,
             });
             results.updated++;
@@ -1712,6 +1730,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         phoneNumber,
         phoneNumberType || "DirectRouting"
       );
+
+      // Update local database to mark number as available
+      const operatorEmail = req.user?.email || "unknown";
+      const localNumber = await storage.getPhoneNumberByLineUri(tenantId, phoneNumber);
+      if (localNumber) {
+        await storage.updatePhoneNumber(localNumber.id, {
+          status: "available",
+          displayName: null,
+          userPrincipalName: null,
+          onlineVoiceRoutingPolicy: null,
+          lastModifiedBy: operatorEmail,
+        });
+        console.log(`Updated phone number ${phoneNumber} to available in local database`);
+      } else {
+        console.log(`Phone number ${phoneNumber} not found in local database - skipping update`);
+      }
 
       res.json(result);
     } catch (error) {
@@ -2188,6 +2222,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           console.log(`[BulkAssignment][${userName}] Assignment completed, listener removed`);
 
+          // Update local database to mark number as used
+          const operatorEmail = req.user?.email || "unknown";
+          const localNumber = await storage.getPhoneNumberByLineUri(tenantId, assignment.phoneNumber);
+          if (localNumber) {
+            await storage.updatePhoneNumber(localNumber.id, {
+              status: "used",
+              displayName: user.displayName,
+              userPrincipalName: user.userPrincipalName,
+              onlineVoiceRoutingPolicy: assignment.routingPolicy,
+              lastModifiedBy: operatorEmail,
+            });
+            console.log(`[BulkAssignment][${userName}] Updated phone number ${assignment.phoneNumber} to used in local database`);
+          } else {
+            console.log(`[BulkAssignment][${userName}] Phone number ${assignment.phoneNumber} not found in local database - skipping update`);
+          }
+
           // Query after state for audit log
           const afterState = await queryUserState(certCredentials, userUpn);
 
@@ -2547,6 +2597,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       console.log(`[Assignment] SUCCESS: Both phone and policy assigned successfully`);
+
+      // Update local database to mark number as used
+      const operatorEmail = req.user?.email || "unknown";
+      const localNumber = await storage.getPhoneNumberByLineUri(tenantId, phoneNumber);
+      if (localNumber) {
+        await storage.updatePhoneNumber(localNumber.id, {
+          status: "used",
+          displayName: user.displayName,
+          userPrincipalName: user.userPrincipalName,
+          onlineVoiceRoutingPolicy: routingPolicy,
+          lastModifiedBy: operatorEmail,
+        });
+        console.log(`Updated phone number ${phoneNumber} to used in local database`);
+      } else {
+        console.log(`Phone number ${phoneNumber} not found in local database - skipping update`);
+      }
 
       // Close the temporary PowerShell session
       if (sessionId) {

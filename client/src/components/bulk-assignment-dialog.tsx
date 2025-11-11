@@ -10,7 +10,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Users, Upload, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
+import { Loader2, Users, Upload, CheckCircle2, XCircle, AlertCircle, List } from "lucide-react";
+import { PhoneNumberPickerDialog } from "./phone-number-picker-dialog";
 import type { TeamsUser, VoiceRoutingPolicy, CustomerTenant } from "@shared/schema";
 
 interface BulkAssignmentDialogProps {
@@ -40,6 +41,7 @@ export function BulkAssignmentDialog({ open, onOpenChange, selectedTenant }: Bul
   const [results, setResults] = useState<BulkResult[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [phonePickerUserId, setPhonePickerUserId] = useState<string | null>(null);
 
   // Fetch Teams users
   const { data: teamsUsers, isLoading: isLoadingUsers } = useQuery({
@@ -403,14 +405,26 @@ export function BulkAssignmentDialog({ open, onOpenChange, selectedTenant }: Bul
                                 <Label htmlFor={`phone-${user.id}`} className="text-xs">
                                   Phone Number
                                 </Label>
-                                <Input
-                                  id={`phone-${user.id}`}
-                                  value={userAssignments.get(user.id)?.phoneNumber || ""}
-                                  onChange={(e) => updateUserAssignment(user.id, 'phoneNumber', e.target.value)}
-                                  placeholder="tel:+15551234567"
-                                  className="h-9 text-sm"
-                                  data-testid={`input-phone-${user.id}`}
-                                />
+                                <div className="flex gap-1">
+                                  <Input
+                                    id={`phone-${user.id}`}
+                                    value={userAssignments.get(user.id)?.phoneNumber || ""}
+                                    onChange={(e) => updateUserAssignment(user.id, 'phoneNumber', e.target.value)}
+                                    placeholder="tel:+15551234567"
+                                    className="h-9 text-sm flex-1"
+                                    data-testid={`input-phone-${user.id}`}
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setPhonePickerUserId(user.id)}
+                                    className="h-9 px-2"
+                                    title="Select from inventory"
+                                  >
+                                    <List className="w-3 h-3" />
+                                  </Button>
+                                </div>
                               </div>
 
                               {/* Routing Policy Dropdown */}
@@ -497,6 +511,24 @@ export function BulkAssignmentDialog({ open, onOpenChange, selectedTenant }: Bul
           </DialogFooter>
         )}
       </DialogContent>
+
+      {/* Phone Number Picker Dialog */}
+      {phonePickerUserId && (
+        <PhoneNumberPickerDialog
+          open={phonePickerUserId !== null}
+          onOpenChange={(open) => {
+            if (!open) setPhonePickerUserId(null);
+          }}
+          tenant={selectedTenant}
+          onSelectNumber={(number) => {
+            if (phonePickerUserId) {
+              updateUserAssignment(phonePickerUserId, 'phoneNumber', number);
+              setPhonePickerUserId(null);
+            }
+          }}
+          currentNumber={phonePickerUserId ? userAssignments.get(phonePickerUserId)?.phoneNumber || "" : ""}
+        />
+      )}
     </Dialog>
   );
 }

@@ -8,12 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Save, X, Users, Phone, Upload, Terminal, Settings2, PhoneOff, RotateCcw } from "lucide-react";
+import { Loader2, Save, X, Users, Phone, Upload, Terminal, Settings2, PhoneOff, RotateCcw, List } from "lucide-react";
 import { TenantSelector } from "@/components/tenant-selector";
 import { UserSearchCombobox } from "@/components/user-search-combobox";
 import { BulkAssignmentDialog } from "@/components/bulk-assignment-dialog";
 import { ConfigurationProfiles } from "@/components/configuration-profiles";
 import { PowerShellMfaModal } from "@/components/powershell-mfa-modal";
+import { PhoneNumberPickerDialog } from "@/components/phone-number-picker-dialog";
 import type { TeamsUser, VoiceRoutingPolicy, CustomerTenant, ConfigurationProfile, FeatureFlag } from "@shared/schema";
 
 interface UserVoiceConfig {
@@ -36,6 +37,7 @@ export default function Dashboard() {
   const [showPowerShellModal, setShowPowerShellModal] = useState(false);
   const [powershellPolicies, setPowershellPolicies] = useState<VoiceRoutingPolicy[] | null>(null);
   const [activeTab, setActiveTab] = useState("configuration");
+  const [showPhonePickerDialog, setShowPhonePickerDialog] = useState(false);
 
   // Fetch Teams users when tenant is selected
   const { data: teamsUsers, isLoading: isLoadingUsers } = useQuery({
@@ -617,22 +619,34 @@ export default function Dashboard() {
                 <Phone className="w-4 h-4 inline mr-1" />
                 Phone Number (Line URI)
               </Label>
-              <Input
-                id="phone-number"
-                type="text"
-                placeholder="tel:+15551234567"
-                value={phoneNumber}
-                onChange={(e) => handlePhoneNumberChange(e.target.value)}
-                className={`h-11 ${
-                  phoneValidation && !phoneValidation.isValid
-                    ? "border-destructive focus-visible:ring-destructive"
-                    : phoneValidation && phoneValidation.isValid
-                    ? "border-green-500 focus-visible:ring-green-500"
-                    : ""
-                }`}
-                disabled={!selectedUser}
-                data-testid="input-phone-number"
-              />
+              <div className="flex gap-2">
+                <Input
+                  id="phone-number"
+                  type="text"
+                  placeholder="tel:+15551234567"
+                  value={phoneNumber}
+                  onChange={(e) => handlePhoneNumberChange(e.target.value)}
+                  className={`h-11 flex-1 ${
+                    phoneValidation && !phoneValidation.isValid
+                      ? "border-destructive focus-visible:ring-destructive"
+                      : phoneValidation && phoneValidation.isValid
+                      ? "border-green-500 focus-visible:ring-green-500"
+                      : ""
+                  }`}
+                  disabled={!selectedUser}
+                  data-testid="input-phone-number"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowPhonePickerDialog(true)}
+                  disabled={!selectedUser || !selectedTenant}
+                  className="h-11"
+                  title="Select from available numbers"
+                >
+                  <List className="w-4 h-4" />
+                </Button>
+              </div>
               {phoneValidation && (
                 <p
                   className={`text-xs ${
@@ -645,7 +659,7 @@ export default function Dashboard() {
               )}
               {!phoneValidation && (
                 <p className="text-xs text-muted-foreground">
-                  Format: tel:+[country code][phone number] (e.g., tel:+15551234567)
+                  Format: tel:+[country code][phone number] (e.g., tel:+15551234567). Click <List className="w-3 h-3 inline" /> to select from inventory.
                 </p>
               )}
             </div>
@@ -759,6 +773,18 @@ export default function Dashboard() {
           }}
         />
       )}
+
+      {/* Phone Number Picker Dialog */}
+      <PhoneNumberPickerDialog
+        open={showPhonePickerDialog}
+        onOpenChange={setShowPhonePickerDialog}
+        tenant={selectedTenant}
+        onSelectNumber={(number) => {
+          setPhoneNumber(number);
+          handlePhoneNumberChange(number);
+        }}
+        currentNumber={phoneNumber}
+      />
 
       {/* Empty State */}
       {!selectedTenant && (
