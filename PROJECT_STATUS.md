@@ -1,7 +1,7 @@
 # UCR Manager - Phone Number Inventory System - Current Status
 
-**Last Updated**: 2025-11-11 @ 05:45 AM UTC
-**Build Status**: ✅ Deployed and Running on Port 443 (HTTPS) - Global Policy & Auto-Populate Fixed
+**Last Updated**: 2025-11-11 @ 07:30 AM UTC
+**Build Status**: ✅ Deployed and Running on Port 443 (HTTPS) - All Policy Types Global Assignment Fixed
 
 ---
 
@@ -161,6 +161,42 @@ Phone Number Inventory Management System with Microsoft Teams synchronization ca
 - `client/src/pages/dashboard.tsx` - Auto-populate useEffect with policy matching
 **Result**: Global policy assignment works correctly, detection is reliable, and forms auto-populate with user's existing configuration
 
+### Issue 7: Global Policy Assignment Fails for All Policy Types on Policy Management Page ✅ FIXED
+**Problem**: When assigning "Global" policy via the User Policy Assignment page (policy-management.tsx), all policy types failed with 500 error: "Assigning global is not allowed"
+**Root Cause**: The generic `grantTeamsPolicyCert()` function used by all 10 policy types was passing `"Global"` as a string literal to PowerShell. Microsoft Teams requires `$null` (not the string "Global") to assign the Global/default policy for ANY policy type.
+**Scope**: This affected all 10 supported policy types:
+1. Voice Routing Policy
+2. Audio Conferencing Policy
+3. Call Hold Policy
+4. Caller ID Policy
+5. Calling Policy
+6. Emergency Call Routing Policy
+7. Emergency Calling Policy
+8. Meeting Policy
+9. Voice Applications Policy
+10. Voicemail Policy
+
+**Fixes Applied**:
+- **Generic Policy Function**: Fixed `grantTeamsPolicyCert()` in `server/powershell.ts` (lines 599-621)
+  - Added detection: `const isGlobalPolicy = policyName.toLowerCase() === 'global'`
+  - Uses `$null` for Global: `const policyValue = isGlobalPolicy ? '$null' : \`"${policyName}"\``
+  - Applies to ALL policy types via the generic Grant-Cs* cmdlets
+- **Session-Based Function**: Fixed `assignVoiceRoutingPolicy()` in `server/powershell-session.ts` (lines 524-538)
+  - Added same Global policy detection and `$null` handling
+  - Ensures consistency across different invocation methods
+
+**Testing Results**:
+- ✅ Verified with Teams Telephony Administrator role (reduced permissions)
+- ✅ Confirmed Global policy assignment works via Voice Configuration page
+- ✅ Confirmed Global policy assignment works via User Policy Assignment page
+- ✅ "Reset to Default" button continues to work correctly
+
+**Files Modified**:
+- `server/powershell.ts` - Generic policy assignment function (all 10 types)
+- `server/powershell-session.ts` - Session-based voice routing policy assignment
+
+**Result**: All 10 policy types now correctly handle Global policy assignment using `$null`, and Teams Telephony Administrator permissions are sufficient for all voice-related operations.
+
 ---
 
 ## 📊 Current System State
@@ -191,7 +227,7 @@ curl -X POST https://localhost/api/numbers/sync-from-teams/83f508e2-0b8b-41da-9d
 
 ### Environment
 - **Node Version**: v24.11.0
-- **PM2 Process**: ucrmanager (ID: 0, Restarts: 83)
+- **PM2 Process**: ucrmanager (ID: 0, Restarts: 85)
 - **Port**: 443 (HTTPS)
 - **Debug Mode**: ✅ Enabled
 
@@ -306,6 +342,7 @@ PGPASSWORD='4FC4E215649C6EBF3A390BAFE4B2ECD7' \
 - **Feature Flags**: Both flags currently disabled by default; enable via Admin Panel → Features
 - **Bulk Assignment**: Requires PowerShell certificate auth; uses unique markers to prevent output overlap
 - **Admin Access**: Admin panel accessible to users with `admin` role via Admin Panel button in header
-- **Global Policy**: When assigning the default "Global" voice routing policy, the system automatically uses `$null` in PowerShell (required by Microsoft Teams)
+- **Global Policy**: When assigning the default "Global" policy for ANY of the 10 supported policy types, the system automatically uses `$null` in PowerShell (required by Microsoft Teams). This applies to: Voice Routing, Audio Conferencing, Call Hold, Caller ID, Calling, Emergency Call Routing, Emergency Calling, Meeting, Voice Applications, and Voicemail policies.
 - **Auto-Populate**: Voice configuration form now auto-populates phone number and policy when selecting a user with existing configuration
 - **Unique Markers**: Both single and bulk assignment endpoints use unique markers (timestamp + random string) for reliable success/failure detection
+- **Teams Permissions**: Application operates successfully with **Teams Telephony Administrator** role (reduced permissions). Full Teams Administrator role is NOT required for voice-related operations.

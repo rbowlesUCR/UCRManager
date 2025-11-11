@@ -604,20 +604,21 @@ export async function grantTeamsPolicyCert(
 ): Promise<PowerShellResult> {
   const config = policyTypeConfig[policyType];
 
+  // Special handling for "Global" policy - must use $null
+  const isGlobalPolicy = policyName.toLowerCase() === 'global';
+  const policyValue = isGlobalPolicy ? '$null' : `"${policyName}"`;
+  const displayPolicyName = isGlobalPolicy ? 'Global (default)' : policyName;
+
   const script = `
 # Grant ${config.displayName}
 ${config.powerShellCmdGrant} \`
     -Identity "${userPrincipalName}" \`
-    -PolicyName "${policyName}"
+    -PolicyName ${policyValue}
 
-Write-Output "Successfully assigned ${config.displayName.toLowerCase()} '${policyName}' to ${userPrincipalName}"
+Write-Output "Successfully assigned ${config.displayName.toLowerCase()} '${displayPolicyName}' to ${userPrincipalName}"
 `;
   return executePowerShellWithCertificate(credentials, script);
 }
-
-/**
- * Assign phone number AND voice routing policy in one operation (certificate auth)
- */
 export async function assignPhoneAndPolicyCert(
   credentials: PowerShellCertificateCredentials,
   userPrincipalName: string,

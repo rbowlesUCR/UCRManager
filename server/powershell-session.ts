@@ -529,7 +529,11 @@ Write-Host "POLICIES_JSON_END"
     // Remove "Tag:" prefix if present (PowerShell cmdlet doesn't need it)
     const cleanPolicyName = policyName.replace(/^Tag:/i, "");
 
-    const command = `Grant-CsOnlineVoiceRoutingPolicy -Identity "${userPrincipalName}" -PolicyName "${cleanPolicyName}"`;
+    // Special handling for "Global" policy - must use $null
+    const isGlobalPolicy = cleanPolicyName.toLowerCase() === 'global';
+    const policyValue = isGlobalPolicy ? '$null' : `"${cleanPolicyName}"`;
+
+    const command = `Grant-CsOnlineVoiceRoutingPolicy -Identity "${userPrincipalName}" -PolicyName ${policyValue}`;
     return this.executeTeamsCommand(sessionId, command);
   }
 

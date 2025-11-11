@@ -2807,15 +2807,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       // Execute PowerShell command to grant policy
+      console.log(`[Assign Policy] Calling grantTeamsPolicyCert for user ${userPrincipalName}, policyType=${policyType}, policyName=${policyName}`);
       const result = await grantTeamsPolicyCert(certCredentials, userPrincipalName, policyType as PolicyType, policyName);
+      console.log(`[Assign Policy] Result: success=${result.success}, error=${result.error}, output length=${result.output?.length || 0}`);
 
       if (result.success) {
+        console.log(`[Assign Policy] ✓ Successfully assigned policy to ${userPrincipalName}`);
         res.json({
           success: true,
           message: `Successfully assigned ${policyTypeConfig[policyType as PolicyType].displayName} '${policyName}' to ${userPrincipalName}`,
           output: result.output,
         });
       } else {
+        console.error(`[Assign Policy] ✗ Failed to assign policy. Full error:`, result.error);
+        console.error(`[Assign Policy] ✗ PowerShell output:`, result.output);
         res.status(500).json({
           success: false,
           error: result.error || `Failed to assign ${policyTypeConfig[policyType as PolicyType].displayName}`,
