@@ -142,6 +142,17 @@ export const phoneNumberInventory = pgTable("phone_number_inventory", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Feature flags table - controls which features are enabled in the application
+export const featureFlags = pgTable("feature_flags", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  featureKey: text("feature_key").notNull().unique(), // Unique identifier for the feature (e.g., "number_management")
+  featureName: text("feature_name").notNull(), // Display name (e.g., "Number Management")
+  description: text("description").notNull(), // Description of what the feature does
+  isEnabled: boolean("is_enabled").default(false).notNull(), // Whether the feature is currently enabled
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Insert schemas
 export const insertAdminUserSchema = createInsertSchema(adminUsers).omit({
   id: true,
@@ -189,6 +200,12 @@ export const insertPhoneNumberInventorySchema = createInsertSchema(phoneNumberIn
   updatedAt: true,
 });
 
+export const insertFeatureFlagSchema = createInsertSchema(featureFlags).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type AdminUser = typeof adminUsers.$inferSelect;
 export type InsertAdminUser = z.infer<typeof insertAdminUserSchema>;
@@ -213,6 +230,9 @@ export type InsertTenantPowershellCredentials = z.infer<typeof insertTenantPower
 
 export type PhoneNumberInventory = typeof phoneNumberInventory.$inferSelect;
 export type InsertPhoneNumberInventory = z.infer<typeof insertPhoneNumberInventorySchema>;
+
+export type FeatureFlag = typeof featureFlags.$inferSelect;
+export type InsertFeatureFlag = z.infer<typeof insertFeatureFlagSchema>;
 
 // Number status and type enums for type safety
 export type NumberStatus = "available" | "used" | "reserved" | "aging";

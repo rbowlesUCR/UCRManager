@@ -906,6 +906,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== FEATURE FLAGS ROUTES =====
+
+  // Get all feature flags
+  app.get("/api/feature-flags", requireOperatorAuth, async (req, res) => {
+    try {
+      const flags = await storage.getAllFeatureFlags();
+      res.json(flags);
+    } catch (error) {
+      console.error("Error fetching feature flags:", error);
+      res.status(500).json({ error: "Failed to fetch feature flags" });
+    }
+  });
+
+  // Get a specific feature flag by key
+  app.get("/api/feature-flags/:featureKey", requireOperatorAuth, async (req, res) => {
+    try {
+      const flag = await storage.getFeatureFlagByKey(req.params.featureKey);
+      if (!flag) {
+        return res.status(404).json({ error: "Feature flag not found" });
+      }
+      res.json(flag);
+    } catch (error) {
+      console.error("Error fetching feature flag:", error);
+      res.status(500).json({ error: "Failed to fetch feature flag" });
+    }
+  });
+
+  // Update a feature flag (admin only)
+  app.put("/api/admin/feature-flags/:featureKey", requireAdminAuth, async (req, res) => {
+    try {
+      const { featureKey } = req.params;
+      const { isEnabled } = req.body;
+
+      if (typeof isEnabled !== "boolean") {
+        return res.status(400).json({ error: "isEnabled must be a boolean" });
+      }
+
+      const updated = await storage.updateFeatureFlag(featureKey, isEnabled);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating feature flag:", error);
+      res.status(500).json({ error: "Failed to update feature flag" });
+    }
+  });
+
   // ===== TENANT MANAGEMENT ROUTES =====
 
   // Get all customer tenants
