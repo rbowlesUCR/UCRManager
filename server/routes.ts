@@ -2033,9 +2033,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             throw new Error("User not found or inaccessible");
           }
 
-          // Capture output
+          // Small delay between assignments to let previous output settle
+          if (i > 0) {
+            console.log(`[BulkAssignment] Waiting 2s before next assignment...`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+
+          // Capture output - ONLY for this assignment
           let assignmentOutput: string[] = [];
           let outputBuffer = "";
+          const assignmentStartTime = Date.now();
 
           const outputHandler = ({ output }: { output: string }) => {
             outputBuffer += output;
@@ -2043,12 +2050,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
             outputBuffer = lines.pop() || "";
             for (const line of lines) {
               if (line.trim()) {
+                console.log(`[BulkAssignment][${userName}] PS Output: ${line}`);
                 assignmentOutput.push(line);
               }
             }
           };
 
           session.emitter.on("output", outputHandler);
+
+          console.log(`[BulkAssignment] Sending command for ${userName}: Phone=${assignment.phoneNumber}, Policy=${assignment.routingPolicy}`);
 
           // Send assignment command
           const success = powershellSessionManager.assignPhoneNumberAndPolicy(
@@ -2075,21 +2085,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const hasFailed = actualOutput.some(line => line.includes("RESULT: FAILED"));
               const hasPhoneSuccess = actualOutput.some(line => line.includes("SUCCESS: Phone number assigned"));
               const hasPolicySuccess = actualOutput.some(line => line.includes("SUCCESS: Voice routing policy assigned"));
+              const hasPhoneError = actualOutput.some(line => line.includes("ERROR_PHONE:"));
+              const hasPolicyError = actualOutput.some(line => line.includes("ERROR_POLICY:"));
+
+              // Log status every 5 seconds
+              if (elapsed > 0 && elapsed % 5000 < 500) {
+                console.log(`[BulkAssignment][${userName}] Waiting ${elapsed}ms: Phone=${hasPhoneSuccess}, Policy=${hasPolicySuccess}, Success=${hasSuccess}, Failed=${hasFailed}`);
+              }
 
               if (hasSuccess || (hasPhoneSuccess && hasPolicySuccess)) {
+                console.log(`[BulkAssignment][${userName}] ✓ Detected success after ${elapsed}ms - Phone=${hasPhoneSuccess}, Policy=${hasPolicySuccess}`);
                 clearInterval(checkInterval);
                 resolve();
                 return;
               }
 
-              if (hasFailed) {
+              if (hasFailed || hasPhoneError || hasPolicyError) {
                 clearInterval(checkInterval);
                 const errorLine = actualOutput.find(line => line.includes("ERROR"));
+                console.log(`[BulkAssignment][${userName}] ✗ Detected failure after ${elapsed}ms: ${errorLine}`);
                 reject(new Error(errorLine || "PowerShell assignment failed"));
                 return;
               }
 
               if (elapsed > maxWaitTime) {
+                console.log(`[BulkAssignment][${userName}] ✗ Timeout after ${maxWaitTime}ms`);
+                console.log(`[BulkAssignment][${userName}] Final output lines: ${actualOutput.length}`);
                 clearInterval(checkInterval);
                 reject(new Error("PowerShell command timeout (60 seconds)"));
                 return;
