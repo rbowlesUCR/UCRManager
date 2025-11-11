@@ -1,7 +1,7 @@
 # UCR Manager - Phone Number Inventory System - Current Status
 
-**Last Updated**: 2025-11-10 @ 12:00 AM UTC
-**Build Status**: ✅ Deployed and Running on Port 443 (HTTPS) - Teams Sync Bug Fixed
+**Last Updated**: 2025-11-11 @ 04:51 AM UTC
+**Build Status**: ✅ Deployed and Running on Port 443 (HTTPS) - Feature Flags & Bulk Assignment Fixed
 
 ---
 
@@ -77,6 +77,28 @@ Phone Number Inventory Management System with Microsoft Teams synchronization ca
 - **Numbers**: Seed test data, list numbers, test CSV parse, test bulk update, next available, cleanup, statistics
 - **Lifecycle**: Run check manually, get stats, test aging transitions
 
+### 8. Feature Flags System ✅
+**Database**: `feature_flags` table
+**File**: `migrations/0004_feature_flags.sql`
+- Dynamic feature toggles for application functionality
+- Admin UI for managing feature flags (`client/src/pages/admin-features.tsx`)
+- Current features:
+  - **Number Management**: Phone number inventory system
+  - **Bulk Assignment**: Bulk voice configuration assignment
+- API endpoints: `GET /api/feature-flags` and `GET /api/feature-flags/:key`
+- Admin endpoint: `PUT /api/admin/feature-flags/:key`
+- Real-time updates without application restart
+
+### 9. Bulk Voice Assignment ✅
+**File**: `client/src/components/bulk-assignment-dialog.tsx`
+- Individual user configuration (manual phone number + policy dropdown per user)
+- PowerShell-based assignment (required for voice routing policies)
+- Checkbox selection for multiple users
+- Visual feedback with accent background for selected users
+- Policy dropdown populated from PowerShell `Get-CsOnlineVoiceRoutingPolicy`
+- Unique marker system prevents output overlap between sequential assignments
+- Feature flag controlled (shows/hides based on `bulk_assignment` flag)
+
 ---
 
 ## 🐛 Known Issues & Fixes Applied
@@ -100,6 +122,22 @@ Phone Number Inventory Management System with Microsoft Teams synchronization ca
 **Files Modified**: `client/src/components/teams-sync-dialog.tsx` (lines 28-56, 58-103)
 **Debug Logging**: Added comprehensive console.log statements for troubleshooting
 
+### Issue 4: Bulk Assignment Second User Not Getting Policy ✅ FIXED
+**Problem**: In bulk assignment, first user gets phone + policy correctly, but second user only gets phone number (policy missing)
+**Cause**: PowerShell output overlap - generic success markers from first user detected as success for second user
+**Fix**: Implemented unique marker system per assignment (`BULK_userId_timestamp_random`)
+**Files Modified**:
+- `server/powershell-session.ts` (added `uniqueMarker` parameter to `assignPhoneNumberAndPolicy`)
+- `server/routes.ts` (bulk assignment endpoint generates and checks unique markers)
+**Result**: Each assignment has isolated success/failure detection, preventing cross-contamination
+
+### Issue 5: Bulk Assignment Feature Flag Not Working ✅ FIXED
+**Problem**: Bulk Assignment button still visible even when feature flag was disabled
+**Cause**: Feature flag existed in database but wasn't checked by dashboard UI
+**Fix**: Added feature flag query and conditional rendering in dashboard
+**Files Modified**: `client/src/pages/dashboard.tsx` (lines 93-108, 402-412)
+**Result**: Bulk Assign button now shows/hides based on `bulk_assignment` feature flag state
+
 ---
 
 ## 📊 Current System State
@@ -108,6 +146,7 @@ Phone Number Inventory Management System with Microsoft Teams synchronization ca
 - **Dev Tenant ID**: `83f508e2-0b8b-41da-9dba-8a329305c13e`
 - **Phone Numbers**: 0 (test data cleared)
 - **PowerShell Credentials**: Certificate-based auth configured
+- **Feature Flags**: 2 flags configured (number_management, bulk_assignment)
 
 ### Teams Data Available
 - **1 phone number** found in Teams:
@@ -129,7 +168,7 @@ curl -X POST https://localhost/api/numbers/sync-from-teams/83f508e2-0b8b-41da-9d
 
 ### Environment
 - **Node Version**: v24.11.0
-- **PM2 Process**: ucrmanager (ID: 0, Restarts: 69)
+- **PM2 Process**: ucrmanager (ID: 0, Restarts: 79)
 - **Port**: 443 (HTTPS)
 - **Debug Mode**: ✅ Enabled
 
@@ -177,13 +216,20 @@ curl -X POST https://localhost/api/numbers/sync-from-teams/83f508e2-0b8b-41da-9d
 
 ### Frontend
 - `client/src/pages/number-management.tsx` - Main UI page
+- `client/src/pages/admin-features.tsx` - Feature flags management UI
+- `client/src/pages/dashboard.tsx` - Voice configuration page (includes bulk assignment)
 - `client/src/components/teams-sync-dialog.tsx` - Sync dialog component
+- `client/src/components/bulk-assignment-dialog.tsx` - Bulk assignment dialog
 - `client/src/components/tenant-selector.tsx` - Tenant dropdown
+- `client/src/components/layout.tsx` - Main layout with feature flag checks
+- `client/src/components/admin-layout.tsx` - Admin panel layout
 
 ### Database
 - `shared/schema.ts` - Drizzle ORM schema definitions
+- `migrations/0004_feature_flags.sql` - Feature flags schema migration
 - Table: `phone_number_inventory`
 - Table: `tenant_powershell_credentials`
+- Table: `feature_flags`
 
 ---
 
@@ -212,6 +258,18 @@ curl -k -X POST https://localhost/api/numbers/sync-from-teams/83f508e2-0b8b-41da
   -H "Cookie: operatorToken=..." \
   -H "Content-Type: application/json" \
   -d "{}"
+
+# Check Feature Flags
+PGPASSWORD='4FC4E215649C6EBF3A390BAFE4B2ECD7' \
+  "/c/Program Files/PostgreSQL/16/bin/psql.exe" \
+  -U postgres -d ucrmanager -t -A \
+  -c "SELECT feature_key, feature_name, is_enabled FROM feature_flags;"
+
+# Enable/Disable Feature Flag
+PGPASSWORD='4FC4E215649C6EBF3A390BAFE4B2ECD7' \
+  "/c/Program Files/PostgreSQL/16/bin/psql.exe" \
+  -U postgres -d ucrmanager \
+  -c "UPDATE feature_flags SET is_enabled = true WHERE feature_key = 'bulk_assignment';"
 ```
 
 ---
@@ -222,3 +280,6 @@ curl -k -X POST https://localhost/api/numbers/sync-from-teams/83f508e2-0b8b-41da
 - **Fake Data Issue**: Test data was confusing during debugging - now using actual Teams data
 - **Browser Cache**: Users should hard refresh (Ctrl+Shift+R) after deployments
 - **Certificate Auth**: All PowerShell operations use certificate-based authentication (no MFA prompts)
+- **Feature Flags**: Both flags currently disabled by default; enable via Admin Panel → Features
+- **Bulk Assignment**: Requires PowerShell certificate auth; uses unique markers to prevent output overlap
+- **Admin Access**: Admin panel accessible to users with `admin` role via Admin Panel button in header
