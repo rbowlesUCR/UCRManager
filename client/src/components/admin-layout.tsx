@@ -1,6 +1,6 @@
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { LogOut, FileText, Settings, ClipboardList, Building, Shield, ToggleLeft } from "lucide-react";
+import { LogOut, FileText, Settings, ClipboardList, Building, Shield, ToggleLeft, Home } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
 
@@ -13,7 +13,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
   const handleLogout = async () => {
     await apiRequest("POST", "/api/admin/logout", {});
-    setLocation("/admin/login");
+    setLocation("/");
   };
 
   const navItems = [
@@ -105,16 +105,28 @@ export function AdminLayout({ children }: AdminLayoutProps) {
             </nav>
           </div>
 
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleLogout}
-            className="h-9"
-            data-testid="button-admin-logout"
-          >
-            <LogOut className="w-4 h-4 mr-2" />
-            Sign Out
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setLocation("/dashboard")}
+              className="h-9"
+              data-testid="button-main-dashboard"
+            >
+              <Home className="w-4 h-4 mr-2" />
+              Main Dashboard
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleLogout}
+              className="h-9"
+              data-testid="button-admin-logout"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Sign Out
+            </Button>
+          </div>
         </div>
       </header>
 
