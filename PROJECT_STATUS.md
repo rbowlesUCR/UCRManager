@@ -1,7 +1,7 @@
 # UCR Manager - Phone Number Inventory System - Current Status
 
-**Last Updated**: 2025-11-11 @ 04:51 AM UTC
-**Build Status**: ✅ Deployed and Running on Port 443 (HTTPS) - Feature Flags & Bulk Assignment Fixed
+**Last Updated**: 2025-11-11 @ 05:45 AM UTC
+**Build Status**: ✅ Deployed and Running on Port 443 (HTTPS) - Global Policy & Auto-Populate Fixed
 
 ---
 
@@ -138,6 +138,29 @@ Phone Number Inventory Management System with Microsoft Teams synchronization ca
 **Files Modified**: `client/src/pages/dashboard.tsx` (lines 93-108, 402-412)
 **Result**: Bulk Assign button now shows/hides based on `bulk_assignment` feature flag state
 
+### Issue 6: Global Policy Assignment Fails & Form Not Auto-Populating ✅ FIXED
+**Problem 1**: Assigning "Global" voice routing policy failed with 500 error: "Assigning global is not allowed"
+**Problem 2**: Assignment detection timed out even when PowerShell commands succeeded
+**Problem 3**: Form fields didn't auto-populate when selecting a user with existing phone/policy configuration
+**Root Causes**:
+1. PowerShell rejects explicit "Global" policy assignment - must use `$null` instead
+2. Single assignment endpoint used outdated text-based detection instead of unique marker system
+3. Form had no auto-populate logic for existing user configurations
+**Fixes Applied**:
+- **Global Policy Handling**: Added special case in `assignPhoneNumberAndPolicy` - if policy name is "global" (case-insensitive), use `$null` in PowerShell command (`server/powershell-session.ts` lines 615-621)
+- **Unique Marker System**: Migrated single assignment endpoint to use same unique marker system as bulk assignment (`server/routes.ts` lines 2309-2311, 2360-2408, 2423-2464)
+  - Generates unique marker: `ASSIGN_timestamp_random`
+  - Detects success with `SUCCESS_PHONE:marker` and `SUCCESS_POLICY:marker`
+  - Prevents detection failures and timeouts
+- **Auto-Populate Forms**: Added useEffect hook to populate phone number and voice routing policy when user is selected (`client/src/pages/dashboard.tsx` lines 129-170)
+  - Normalizes policy names by removing "Tag:" prefix for matching
+  - Uses policy ID for dropdown selection
+**Files Modified**:
+- `server/powershell-session.ts` - Global policy $null handling
+- `server/routes.ts` - Unique marker generation and detection logic
+- `client/src/pages/dashboard.tsx` - Auto-populate useEffect with policy matching
+**Result**: Global policy assignment works correctly, detection is reliable, and forms auto-populate with user's existing configuration
+
 ---
 
 ## 📊 Current System State
@@ -168,7 +191,7 @@ curl -X POST https://localhost/api/numbers/sync-from-teams/83f508e2-0b8b-41da-9d
 
 ### Environment
 - **Node Version**: v24.11.0
-- **PM2 Process**: ucrmanager (ID: 0, Restarts: 79)
+- **PM2 Process**: ucrmanager (ID: 0, Restarts: 83)
 - **Port**: 443 (HTTPS)
 - **Debug Mode**: ✅ Enabled
 
@@ -283,3 +306,6 @@ PGPASSWORD='4FC4E215649C6EBF3A390BAFE4B2ECD7' \
 - **Feature Flags**: Both flags currently disabled by default; enable via Admin Panel → Features
 - **Bulk Assignment**: Requires PowerShell certificate auth; uses unique markers to prevent output overlap
 - **Admin Access**: Admin panel accessible to users with `admin` role via Admin Panel button in header
+- **Global Policy**: When assigning the default "Global" voice routing policy, the system automatically uses `$null` in PowerShell (required by Microsoft Teams)
+- **Auto-Populate**: Voice configuration form now auto-populates phone number and policy when selecting a user with existing configuration
+- **Unique Markers**: Both single and bulk assignment endpoints use unique markers (timestamp + random string) for reliable success/failure detection
