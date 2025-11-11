@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -19,7 +19,7 @@ interface BulkAssignmentDialogProps {
   selectedTenant: CustomerTenant | null;
 }
 
-interface BulkAssignment {
+interface UserAssignment {
   userId: string;
   userName: string;
   phoneNumber: string;
@@ -36,9 +36,7 @@ interface BulkResult {
 export function BulkAssignmentDialog({ open, onOpenChange, selectedTenant }: BulkAssignmentDialogProps) {
   const { toast } = useToast();
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
-  const [phoneNumberPrefix, setPhoneNumberPrefix] = useState("tel:+1");
-  const [startingNumber, setStartingNumber] = useState("");
-  const [selectedPolicy, setSelectedPolicy] = useState("");
+  const [userAssignments, setUserAssignments] = useState<Map<string, UserAssignment>>(new Map());
   const [results, setResults] = useState<BulkResult[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -56,7 +54,7 @@ export function BulkAssignmentDialog({ open, onOpenChange, selectedTenant }: Bul
   });
 
   const bulkAssignMutation = useMutation({
-    mutationFn: async (assignments: BulkAssignment[]) => {
+    mutationFn: async (assignments: UserAssignment[]) => {
       const response = await apiRequest("POST", "/api/teams/bulk-assign-voice", {
         tenantId: selectedTenant!.id,
         assignments,
@@ -126,68 +124,90 @@ export function BulkAssignmentDialog({ open, onOpenChange, selectedTenant }: Bul
     return { isValid: true, message: "Valid" };
   };
 
-  const handleUserToggle = (userId: string) => {
+  const handleUserToggle = (userId: string, userName: string) => {
     const newSet = new Set(selectedUsers);
+    const newAssignments = new Map(userAssignments);
+
     if (newSet.has(userId)) {
       newSet.delete(userId);
+      newAssignments.delete(userId);
     } else {
       newSet.add(userId);
+      // Initialize assignment with empty values
+      newAssignments.set(userId, {
+        userId,
+        userName,
+        phoneNumber: "",
+        routingPolicy: "",
+      });
     }
+
     setSelectedUsers(newSet);
+    setUserAssignments(newAssignments);
   };
 
   const handleSelectAll = () => {
     if (selectedUsers.size === (teamsUsers as TeamsUser[])?.length) {
       setSelectedUsers(new Set());
+      setUserAssignments(new Map());
     } else {
-      setSelectedUsers(new Set((teamsUsers as TeamsUser[])?.map(u => u.id) || []));
+      const allUsers = (teamsUsers as TeamsUser[]) || [];
+      const newSet = new Set(allUsers.map(u => u.id));
+      const newAssignments = new Map<string, UserAssignment>();
+
+      allUsers.forEach(user => {
+        newAssignments.set(user.id, {
+          userId: user.id,
+          userName: user.displayName,
+          phoneNumber: "",
+          routingPolicy: "",
+        });
+      });
+
+      setSelectedUsers(newSet);
+      setUserAssignments(newAssignments);
+    }
+  };
+
+  const updateUserAssignment = (userId: string, field: 'phoneNumber' | 'routingPolicy', value: string) => {
+    const newAssignments = new Map(userAssignments);
+    const assignment = newAssignments.get(userId);
+    if (assignment) {
+      assignment[field] = value;
+      newAssignments.set(userId, assignment);
+      setUserAssignments(newAssignments);
     }
   };
 
   const handleSubmit = () => {
-    if (!selectedTenant || selectedUsers.size === 0 || !selectedPolicy) {
+    if (!selectedTenant || selectedUsers.size === 0) {
       toast({
         title: "Missing information",
-        description: "Please select users and a routing policy",
+        description: "Please select users to configure",
         variant: "destructive",
       });
       return;
     }
 
-    // Validate phone number prefix
-    if (!phoneNumberPrefix.startsWith("tel:+")) {
+    // Validate all assignments
+    const assignments = Array.from(userAssignments.values());
+    const missingData = assignments.filter(a => !a.phoneNumber || !a.routingPolicy);
+
+    if (missingData.length > 0) {
       toast({
-        title: "Invalid phone number prefix",
-        description: "Prefix must start with 'tel:+' (e.g., tel:+1)",
+        title: "Incomplete assignments",
+        description: `${missingData.length} user(s) are missing phone number or routing policy`,
         variant: "destructive",
       });
       return;
     }
 
-    // Generate assignments with sequential phone numbers
-    const assignments: BulkAssignment[] = [];
-    const userList = (teamsUsers as TeamsUser[]).filter(u => selectedUsers.has(u.id));
-    let baseNumber = parseInt(startingNumber) || 1;
-
-    userList.forEach((user, index) => {
-      const phoneNumber = startingNumber 
-        ? `${phoneNumberPrefix}${(baseNumber + index).toString().padStart(startingNumber.length, '0')}`
-        : `${phoneNumberPrefix}${index + baseNumber}`;
-
-      assignments.push({
-        userId: user.id,
-        userName: user.displayName,
-        phoneNumber,
-        routingPolicy: selectedPolicy,
-      });
-    });
-
-    // Validate all generated phone numbers
+    // Validate all phone numbers
     const invalidNumbers = assignments.filter(a => !validatePhoneNumber(a.phoneNumber).isValid);
     if (invalidNumbers.length > 0) {
       toast({
-        title: "Invalid phone numbers generated",
-        description: `${invalidNumbers.length} phone numbers failed validation. Please check your prefix and starting number.`,
+        title: "Invalid phone numbers",
+        description: `${invalidNumbers.length} phone number(s) failed validation. Please check the format (e.g., tel:+15551234567)`,
         variant: "destructive",
       });
       return;
@@ -196,7 +216,7 @@ export function BulkAssignmentDialog({ open, onOpenChange, selectedTenant }: Bul
     setIsProcessing(true);
     setResults([]);
     setProgress(0);
-    
+
     // Simulate progress updates (since we can't stream from backend)
     const progressInterval = setInterval(() => {
       setProgress(prev => Math.min(prev + 5, 90));
@@ -211,9 +231,7 @@ export function BulkAssignmentDialog({ open, onOpenChange, selectedTenant }: Bul
 
   const handleClose = () => {
     setSelectedUsers(new Set());
-    setPhoneNumberPrefix("tel:+1");
-    setStartingNumber("");
-    setSelectedPolicy("");
+    setUserAssignments(new Map());
     setResults([]);
     setProgress(0);
     setIsProcessing(false);
@@ -225,14 +243,14 @@ export function BulkAssignmentDialog({ open, onOpenChange, selectedTenant }: Bul
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-3xl max-h-[90vh]">
+      <DialogContent className="max-w-5xl max-h-[90vh]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Users className="w-5 h-5" />
             Bulk Voice Configuration
           </DialogTitle>
           <DialogDescription>
-            Assign phone numbers and routing policies to multiple users at once
+            Select users and assign individual phone numbers and routing policies
           </DialogDescription>
         </DialogHeader>
 
@@ -282,138 +300,132 @@ export function BulkAssignmentDialog({ open, onOpenChange, selectedTenant }: Bul
           </div>
         ) : (
           // Configuration view
-          <div className="space-y-6">
-            {/* User Selection */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-semibold">Select Users</Label>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleSelectAll}
-                  disabled={isLoadingUsers}
-                  data-testid="button-select-all-users"
-                >
-                  {selectedUsers.size === users.length ? "Deselect All" : "Select All"}
-                </Button>
-              </div>
+          <div className="space-y-4">
+            {/* User Selection Header */}
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-semibold">Select Users and Configure</Label>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleSelectAll}
+                disabled={isLoadingUsers}
+                data-testid="button-select-all-users"
+              >
+                {selectedUsers.size === users.length ? "Deselect All" : "Select All"}
+              </Button>
+            </div>
 
-              {isLoadingUsers ? (
-                <div className="flex items-center justify-center h-40">
-                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : (
-                <ScrollArea className="h-48 border rounded-md p-4">
-                  <div className="space-y-3">
-                    {users.map((user) => (
-                      <div key={user.id} className="flex items-center gap-3">
-                        <Checkbox
-                          checked={selectedUsers.has(user.id)}
-                          onCheckedChange={() => handleUserToggle(user.id)}
-                          data-testid={`checkbox-user-${user.id}`}
-                        />
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">{user.displayName}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {user.userPrincipalName}
-                            {user.lineUri && ` • Current: ${user.lineUri}`}
-                          </p>
-                        </div>
+            {isLoadingUsers || isLoadingPolicies ? (
+              <div className="flex items-center justify-center h-64">
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <>
+                {/* User Configuration List */}
+                <ScrollArea className="h-[500px] border rounded-md">
+                  <div className="p-4 space-y-4">
+                    {users.length === 0 ? (
+                      <div className="text-center py-12 text-muted-foreground">
+                        <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                        <p>No users available</p>
                       </div>
-                    ))}
+                    ) : (
+                      users.map((user) => (
+                        <div
+                          key={user.id}
+                          className={`p-4 border rounded-lg ${
+                            selectedUsers.has(user.id) ? "border-primary bg-accent/50" : "border-border"
+                          }`}
+                        >
+                          {/* User Header */}
+                          <div className="flex items-start gap-3 mb-3">
+                            <Checkbox
+                              checked={selectedUsers.has(user.id)}
+                              onCheckedChange={() => handleUserToggle(user.id, user.displayName)}
+                              data-testid={`checkbox-user-${user.id}`}
+                              className="mt-1"
+                            />
+                            <div className="flex-1">
+                              <p className="text-sm font-medium">{user.displayName}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {user.userPrincipalName}
+                              </p>
+                              {user.lineUri && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Current: {user.lineUri}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Configuration Fields - Only show if selected */}
+                          {selectedUsers.has(user.id) && (
+                            <div className="grid grid-cols-2 gap-3 mt-3 pl-8">
+                              {/* Phone Number Input */}
+                              <div className="space-y-1">
+                                <Label htmlFor={`phone-${user.id}`} className="text-xs">
+                                  Phone Number
+                                </Label>
+                                <Input
+                                  id={`phone-${user.id}`}
+                                  value={userAssignments.get(user.id)?.phoneNumber || ""}
+                                  onChange={(e) => updateUserAssignment(user.id, 'phoneNumber', e.target.value)}
+                                  placeholder="tel:+15551234567"
+                                  className="h-9 text-sm"
+                                  data-testid={`input-phone-${user.id}`}
+                                />
+                              </div>
+
+                              {/* Routing Policy Dropdown */}
+                              <div className="space-y-1">
+                                <Label htmlFor={`policy-${user.id}`} className="text-xs">
+                                  Routing Policy
+                                </Label>
+                                <Select
+                                  value={userAssignments.get(user.id)?.routingPolicy || ""}
+                                  onValueChange={(value) => updateUserAssignment(user.id, 'routingPolicy', value)}
+                                >
+                                  <SelectTrigger className="h-9 text-sm" data-testid={`select-policy-${user.id}`}>
+                                    <SelectValue placeholder="Select policy" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {policies.map((policy) => (
+                                      <SelectItem key={policy.id} value={policy.name}>
+                                        {policy.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    )}
                   </div>
                 </ScrollArea>
-              )}
 
-              <p className="text-xs text-muted-foreground">
-                {selectedUsers.size} user{selectedUsers.size !== 1 ? 's' : ''} selected
-              </p>
-            </div>
-
-            {/* Phone Number Configuration */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="phone-prefix" className="text-sm font-semibold">
-                  Phone Number Prefix
-                </Label>
-                <Input
-                  id="phone-prefix"
-                  value={phoneNumberPrefix}
-                  onChange={(e) => setPhoneNumberPrefix(e.target.value)}
-                  placeholder="tel:+1"
-                  data-testid="input-phone-prefix"
-                />
-                <p className="text-xs text-muted-foreground">
-                  E.g., tel:+1 for US numbers
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="starting-number" className="text-sm font-semibold">
-                  Starting Number (Optional)
-                </Label>
-                <Input
-                  id="starting-number"
-                  value={startingNumber}
-                  onChange={(e) => setStartingNumber(e.target.value)}
-                  placeholder="5551000"
-                  data-testid="input-starting-number"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Sequential numbers will be generated
-                </p>
-              </div>
-            </div>
-
-            {/* Routing Policy */}
-            <div className="space-y-2">
-              <Label htmlFor="routing-policy" className="text-sm font-semibold">
-                Voice Routing Policy
-              </Label>
-              {isLoadingPolicies ? (
-                <div className="h-11 flex items-center justify-center border rounded-md">
-                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                {/* Summary */}
+                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                  <span>{selectedUsers.size} user{selectedUsers.size !== 1 ? 's' : ''} selected</span>
+                  {selectedUsers.size > 0 && (
+                    <span>
+                      {Array.from(userAssignments.values()).filter(a => a.phoneNumber && a.routingPolicy).length} / {selectedUsers.size} configured
+                    </span>
+                  )}
                 </div>
-              ) : (
-                <Select value={selectedPolicy} onValueChange={setSelectedPolicy}>
-                  <SelectTrigger className="h-11" data-testid="select-bulk-routing-policy">
-                    <SelectValue placeholder="Select a routing policy" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {policies.map((policy) => (
-                      <SelectItem key={policy.id} value={policy.name}>
-                        {policy.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
 
-            {/* Preview */}
-            {selectedUsers.size > 0 && selectedPolicy && (
-              <div className="p-4 bg-muted rounded-lg">
-                <div className="flex items-start gap-2 mb-2">
-                  <AlertCircle className="w-4 h-4 mt-0.5 text-blue-600" />
-                  <div>
-                    <p className="text-sm font-semibold">Preview</p>
-                    <p className="text-xs text-muted-foreground">
-                      {selectedUsers.size} users will be assigned numbers starting with {phoneNumberPrefix}
-                      {startingNumber && ` from ${startingNumber}`} and policy {selectedPolicy}
-                    </p>
+                {/* Processing Progress */}
+                {isProcessing && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-sm">
+                      <span>Processing assignments...</span>
+                      <span>{progress}%</span>
+                    </div>
+                    <Progress value={progress} />
                   </div>
-                </div>
-              </div>
-            )}
-
-            {isProcessing && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span>Processing assignments...</span>
-                  <span>{progress}%</span>
-                </div>
-                <Progress value={progress} />
-              </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -430,7 +442,7 @@ export function BulkAssignmentDialog({ open, onOpenChange, selectedTenant }: Bul
             </Button>
             <Button
               onClick={handleSubmit}
-              disabled={selectedUsers.size === 0 || !selectedPolicy || isProcessing}
+              disabled={selectedUsers.size === 0 || isProcessing}
               data-testid="button-submit-bulk"
             >
               {isProcessing ? (
