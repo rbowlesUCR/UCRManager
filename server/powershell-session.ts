@@ -593,13 +593,17 @@ Write-Host "POLICIES_JSON_END"
     userPrincipalName: string,
     phoneNumber: string,
     policyName: string,
-    locationId?: string
+    locationId?: string,
+    uniqueMarker?: string
   ): boolean {
     // Remove "Tag:" prefix from policy name if present
     const cleanPolicyName = policyName.replace(/^Tag:/i, "");
 
     // Remove "tel:" prefix from phone number if present (PowerShell expects E.164 format)
     const cleanPhoneNumber = phoneNumber.replace(/^tel:/i, "");
+
+    // Generate a unique marker for this assignment if not provided
+    const marker = uniqueMarker || `ASSIGN_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
     // Build phone command
     let phoneCommand = `Set-CsPhoneNumberAssignment -Identity '${userPrincipalName}' -PhoneNumber '${cleanPhoneNumber}' -PhoneNumberType DirectRouting`;
@@ -613,7 +617,9 @@ Write-Host "POLICIES_JSON_END"
     // Create a cleaner script that captures errors properly
     // NOTE: We don't use 'exit' because it kills the output buffer before error messages are flushed
     // Instead, we track success/failure with markers and let the script complete
+    // Use unique marker to prevent confusion between multiple assignments
     const combinedCommand = `
+Write-Host "MARKER_START:${marker}"
 Write-Host "=== Starting Assignment ==="
 Write-Host "User: ${userPrincipalName}"
 Write-Host "Phone: ${cleanPhoneNumber}"
@@ -626,13 +632,13 @@ $errorMessage = ""
 
 try {
   ${phoneCommand} -ErrorAction Stop | Out-Null
-  Write-Host "SUCCESS: Phone number assigned"
+  Write-Host "SUCCESS_PHONE:${marker}"
   $phoneSuccess = $true
 } catch {
   $errorMessage = $_.Exception.Message
-  Write-Host "ERROR_PHONE: $errorMessage"
+  Write-Host "ERROR_PHONE:${marker}: $errorMessage"
   if ($_.ErrorDetails) {
-    Write-Host "ERROR_PHONE_DETAILS: $($_.ErrorDetails.Message)"
+    Write-Host "ERROR_PHONE_DETAILS:${marker}: $($_.ErrorDetails.Message)"
   }
   $phoneSuccess = $false
 }
@@ -640,13 +646,13 @@ try {
 if ($phoneSuccess) {
   try {
     ${policyCommand} -ErrorAction Stop | Out-Null
-    Write-Host "SUCCESS: Voice routing policy assigned"
+    Write-Host "SUCCESS_POLICY:${marker}"
     $policySuccess = $true
   } catch {
     $errorMessage = $_.Exception.Message
-    Write-Host "ERROR_POLICY: $errorMessage"
+    Write-Host "ERROR_POLICY:${marker}: $errorMessage"
     if ($_.ErrorDetails) {
-      Write-Host "ERROR_POLICY_DETAILS: $($_.ErrorDetails.Message)"
+      Write-Host "ERROR_POLICY_DETAILS:${marker}: $($_.ErrorDetails.Message)"
     }
     $policySuccess = $false
   }
@@ -654,15 +660,16 @@ if ($phoneSuccess) {
 
 Write-Host ""
 if ($phoneSuccess -and $policySuccess) {
-  Write-Host "RESULT: SUCCESS"
+  Write-Host "RESULT_SUCCESS:${marker}"
 } else {
-  Write-Host "RESULT: FAILED"
+  Write-Host "RESULT_FAILED:${marker}"
   if (-not $phoneSuccess) {
-    Write-Host "FAILURE_REASON: Phone assignment failed"
+    Write-Host "FAILURE_REASON:${marker}: Phone assignment failed"
   } elseif (-not $policySuccess) {
-    Write-Host "FAILURE_REASON: Policy assignment failed"
+    Write-Host "FAILURE_REASON:${marker}: Policy assignment failed"
   }
 }
+Write-Host "MARKER_END:${marker}"
 `;
 
     return this.executeTeamsCommand(sessionId, combinedCommand);

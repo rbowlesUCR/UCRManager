@@ -14,7 +14,7 @@ import { UserSearchCombobox } from "@/components/user-search-combobox";
 import { BulkAssignmentDialog } from "@/components/bulk-assignment-dialog";
 import { ConfigurationProfiles } from "@/components/configuration-profiles";
 import { PowerShellMfaModal } from "@/components/powershell-mfa-modal";
-import type { TeamsUser, VoiceRoutingPolicy, CustomerTenant, ConfigurationProfile } from "@shared/schema";
+import type { TeamsUser, VoiceRoutingPolicy, CustomerTenant, ConfigurationProfile, FeatureFlag } from "@shared/schema";
 
 interface UserVoiceConfig {
   displayName: string;
@@ -89,6 +89,23 @@ export default function Dashboard() {
 
   // Use PowerShell policies if available, otherwise use Graph API policies
   const routingPolicies = powershellPolicies || graphPolicies;
+
+  // Fetch bulk assignment feature flag
+  const { data: bulkAssignmentFlag } = useQuery<FeatureFlag>({
+    queryKey: ["/api/feature-flags/bulk_assignment"],
+    queryFn: async () => {
+      const res = await fetch("/api/feature-flags/bulk_assignment", {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        return { isEnabled: false }; // Default to disabled if fetch fails
+      }
+      return await res.json();
+    },
+  });
+
+  // Check if bulk assignment feature is enabled
+  const isBulkAssignmentEnabled = bulkAssignmentFlag?.isEnabled ?? false;
 
   // Fetch current voice configuration for selected user via PowerShell
   const { data: userVoiceConfig, isLoading: isLoadingVoiceConfig } = useQuery<UserVoiceConfig>({
@@ -382,15 +399,17 @@ export default function Dashboard() {
                       <Terminal className="w-4 h-4 mr-2" />
                       PowerShell
                     </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => setShowBulkDialog(true)}
-                      className="h-10"
-                      data-testid="button-bulk-assign"
-                    >
-                      <Upload className="w-4 h-4 mr-2" />
-                      Bulk Assign
-                    </Button>
+                    {isBulkAssignmentEnabled && (
+                      <Button
+                        variant="outline"
+                        onClick={() => setShowBulkDialog(true)}
+                        className="h-10"
+                        data-testid="button-bulk-assign"
+                      >
+                        <Upload className="w-4 h-4 mr-2" />
+                        Bulk Assign
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardHeader>

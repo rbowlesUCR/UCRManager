@@ -2039,6 +2039,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             await new Promise(resolve => setTimeout(resolve, 2000));
           }
 
+          // Generate unique marker for this specific assignment
+          const uniqueMarker = `BULK_${assignment.userId}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+          console.log(`[BulkAssignment][${userName}] Using unique marker: ${uniqueMarker}`);
+
           // Capture output - ONLY for this assignment
           let assignmentOutput: string[] = [];
           let outputBuffer = "";
@@ -2060,19 +2064,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           console.log(`[BulkAssignment] Sending command for ${userName}: Phone=${assignment.phoneNumber}, Policy=${assignment.routingPolicy}`);
 
-          // Send assignment command
+          // Send assignment command with unique marker
           const success = powershellSessionManager.assignPhoneNumberAndPolicy(
             sessionId!,
             userUpn,
             assignment.phoneNumber,
-            assignment.routingPolicy
+            assignment.routingPolicy,
+            undefined, // locationId
+            uniqueMarker // unique marker for this assignment
           );
 
           if (!success) {
             throw new Error("Failed to send assignment command to PowerShell");
           }
 
-          // Wait for completion
+          // Wait for completion - looking for THIS assignment's unique markers only
           await new Promise<void>((resolve, reject) => {
             const maxWaitTime = 60000;
             const startTime = Date.now();
@@ -2081,16 +2087,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const elapsed = Date.now() - startTime;
               const actualOutput = assignmentOutput.filter(line => !line.includes(">>") && !line.includes("PS C:\\"));
 
-              const hasSuccess = actualOutput.some(line => line.includes("RESULT: SUCCESS"));
-              const hasFailed = actualOutput.some(line => line.includes("RESULT: FAILED"));
-              const hasPhoneSuccess = actualOutput.some(line => line.includes("SUCCESS: Phone number assigned"));
-              const hasPolicySuccess = actualOutput.some(line => line.includes("SUCCESS: Voice routing policy assigned"));
-              const hasPhoneError = actualOutput.some(line => line.includes("ERROR_PHONE:"));
-              const hasPolicyError = actualOutput.some(line => line.includes("ERROR_POLICY:"));
+              // Look for markers with THIS assignment's unique ID
+              const hasSuccess = actualOutput.some(line => line.includes(`RESULT_SUCCESS:${uniqueMarker}`));
+              const hasFailed = actualOutput.some(line => line.includes(`RESULT_FAILED:${uniqueMarker}`));
+              const hasPhoneSuccess = actualOutput.some(line => line.includes(`SUCCESS_PHONE:${uniqueMarker}`));
+              const hasPolicySuccess = actualOutput.some(line => line.includes(`SUCCESS_POLICY:${uniqueMarker}`));
+              const hasPhoneError = actualOutput.some(line => line.includes(`ERROR_PHONE:${uniqueMarker}`));
+              const hasPolicyError = actualOutput.some(line => line.includes(`ERROR_POLICY:${uniqueMarker}`));
+              const hasMarkerEnd = actualOutput.some(line => line.includes(`MARKER_END:${uniqueMarker}`));
 
               // Log status every 5 seconds
               if (elapsed > 0 && elapsed % 5000 < 500) {
-                console.log(`[BulkAssignment][${userName}] Waiting ${elapsed}ms: Phone=${hasPhoneSuccess}, Policy=${hasPolicySuccess}, Success=${hasSuccess}, Failed=${hasFailed}`);
+                console.log(`[BulkAssignment][${userName}] Waiting ${elapsed}ms: Phone=${hasPhoneSuccess}, Policy=${hasPolicySuccess}, Success=${hasSuccess}, Failed=${hasFailed}, End=${hasMarkerEnd}`);
               }
 
               if (hasSuccess || (hasPhoneSuccess && hasPolicySuccess)) {
@@ -2102,7 +2110,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
               if (hasFailed || hasPhoneError || hasPolicyError) {
                 clearInterval(checkInterval);
-                const errorLine = actualOutput.find(line => line.includes("ERROR"));
+                const errorLine = actualOutput.find(line => line.includes(`ERROR`) && line.includes(uniqueMarker));
                 console.log(`[BulkAssignment][${userName}] ✗ Detected failure after ${elapsed}ms: ${errorLine}`);
                 reject(new Error(errorLine || "PowerShell assignment failed"));
                 return;
@@ -2120,6 +2128,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
           // Clean up listener
           session.emitter.removeListener("output", outputHandler);
+
+          console.log(`[BulkAssignment][${userName}] Assignment completed, listener removed`);
 
           // Create success audit log
           await storage.createAuditLog({
