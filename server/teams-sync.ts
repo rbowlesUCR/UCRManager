@@ -158,3 +158,128 @@ function normalizeLineUri(lineUri: string | null | undefined): string {
   // Add tel: prefix
   return "tel:" + normalized;
 }
+
+/**
+ * Helper function to get PowerShell credentials for a tenant
+ */
+async function getTenantCredentials(tenant: CustomerTenant): Promise<PowerShellCertificateCredentials> {
+  const credentialsRow = await db
+    .select()
+    .from(tenantPowershellCredentials)
+    .where(
+      and(
+        eq(tenantPowershellCredentials.tenantId, tenant.id),
+        eq(tenantPowershellCredentials.isActive, true)
+      )
+    )
+    .limit(1);
+
+  if (!credentialsRow || credentialsRow.length === 0) {
+    throw new Error("No active PowerShell credentials found for this tenant");
+  }
+
+  const creds = credentialsRow[0];
+
+  if (!creds.appId || !creds.certificateThumbprint) {
+    throw new Error("Certificate-based authentication credentials not configured for this tenant");
+  }
+
+  return {
+    tenantId: tenant.tenantId,
+    appId: creds.appId,
+    certificateThumbprint: creds.certificateThumbprint,
+  };
+}
+
+/**
+ * Remove a phone number assignment from a user in Microsoft Teams
+ *
+ * @param tenant - The customer tenant
+ * @param userPrincipalName - The UPN of the user (e.g., user@domain.com)
+ * @param phoneNumber - The phone number to remove (E.164 format, e.g., +15551234567)
+ * @param phoneNumberType - Type of number (DirectRouting, CallingPlan, or OperatorConnect)
+ */
+export async function removePhoneNumberAssignment(
+  tenant: CustomerTenant,
+  userPrincipalName: string,
+  phoneNumber: string,
+  phoneNumberType: "DirectRouting" | "CallingPlan" | "OperatorConnect" = "DirectRouting"
+): Promise<{ success: boolean; message: string }> {
+  const certificateCredentials = await getTenantCredentials(tenant);
+
+  // Remove tel: prefix if present
+  const cleanPhoneNumber = phoneNumber.replace(/^tel:/i, "");
+
+  const powerShellScript = `
+    try {
+      Remove-CsPhoneNumberAssignment -Identity "${userPrincipalName}" -PhoneNumber "${cleanPhoneNumber}" -PhoneNumberType ${phoneNumberType}
+      Write-Output "SUCCESS: Phone number removed successfully"
+    } catch {
+      Write-Error $_.Exception.Message
+      exit 1
+    }
+  `;
+
+  try {
+    const result = await executePowerShellWithCertificate(
+      certificateCredentials,
+      powerShellScript,
+      60000 // 1 minute timeout
+    );
+
+    if (!result.success) {
+      throw new Error(result.error || "Failed to remove phone number assignment");
+    }
+
+    return {
+      success: true,
+      message: `Phone number ${phoneNumber} removed from ${userPrincipalName}`,
+    };
+  } catch (error) {
+    console.error("Error removing phone number assignment:", error);
+    throw error;
+  }
+}
+
+/**
+ * Reset voice routing policy to Global (default) for a user in Microsoft Teams
+ *
+ * @param tenant - The customer tenant
+ * @param userPrincipalName - The UPN of the user (e.g., user@domain.com)
+ */
+export async function resetVoiceRoutingPolicy(
+  tenant: CustomerTenant,
+  userPrincipalName: string
+): Promise<{ success: boolean; message: string }> {
+  const certificateCredentials = await getTenantCredentials(tenant);
+
+  const powerShellScript = `
+    try {
+      Grant-CsOnlineVoiceRoutingPolicy -Identity "${userPrincipalName}" -PolicyName $null
+      Write-Output "SUCCESS: Voice routing policy reset to Global"
+    } catch {
+      Write-Error $_.Exception.Message
+      exit 1
+    }
+  `;
+
+  try {
+    const result = await executePowerShellWithCertificate(
+      certificateCredentials,
+      powerShellScript,
+      60000 // 1 minute timeout
+    );
+
+    if (!result.success) {
+      throw new Error(result.error || "Failed to reset voice routing policy");
+    }
+
+    return {
+      success: true,
+      message: `Voice routing policy reset to Global for ${userPrincipalName}`,
+    };
+  } catch (error) {
+    console.error("Error resetting voice routing policy:", error);
+    throw error;
+  }
+}

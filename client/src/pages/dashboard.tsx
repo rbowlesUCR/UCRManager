@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Save, X, Users, Phone, Upload, Terminal, Settings2 } from "lucide-react";
+import { Loader2, Save, X, Users, Phone, Upload, Terminal, Settings2, PhoneOff, RotateCcw } from "lucide-react";
 import { TenantSelector } from "@/components/tenant-selector";
 import { UserSearchCombobox } from "@/components/user-search-combobox";
 import { BulkAssignmentDialog } from "@/components/bulk-assignment-dialog";
@@ -155,6 +155,64 @@ export default function Dashboard() {
     onError: (error: Error) => {
       toast({
         title: "Failed to assign voice configuration",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Mutation to remove phone number assignment from Teams
+  const removeAssignmentMutation = useMutation({
+    mutationFn: async ({ userPrincipalName, phoneNumber }: { userPrincipalName: string; phoneNumber: string }) => {
+      const response = await apiRequest("POST", "/api/numbers/remove-assignment", {
+        tenantId: selectedTenant?.id,
+        userPrincipalName,
+        phoneNumber,
+        phoneNumberType: "DirectRouting",
+      });
+      return await response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Phone number removed",
+        description: data.message || "The phone number assignment has been removed from Teams",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/teams/users", selectedTenant?.id] });
+      if (selectedUser) {
+        queryClient.invalidateQueries({ queryKey: ["/api/teams/user-voice-config", selectedTenant?.id, selectedUser.userPrincipalName] });
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to remove phone number",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Mutation to reset voice routing policy to Global
+  const resetPolicyMutation = useMutation({
+    mutationFn: async (userPrincipalName: string) => {
+      const response = await apiRequest("POST", "/api/numbers/reset-policy", {
+        tenantId: selectedTenant?.id,
+        userPrincipalName,
+      });
+      return await response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Policy reset to Global",
+        description: data.message || "Voice routing policy has been reset to default",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/teams/users", selectedTenant?.id] });
+      if (selectedUser) {
+        queryClient.invalidateQueries({ queryKey: ["/api/teams/user-voice-config", selectedTenant?.id, selectedUser.userPrincipalName] });
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to reset policy",
         description: error.message,
         variant: "destructive",
       });
@@ -387,62 +445,105 @@ export default function Dashboard() {
                         {userVoiceConfig.voiceRoutingPolicy || "Not assigned"}
                       </span>
                     </div>
-                    {userVoiceConfig.lineUri && (
-                      <Button
-                        variant="link"
-                        size="sm"
-                        className="h-auto p-0 text-xs text-blue-600 dark:text-blue-400"
-                        onClick={() => {
-                          if (userVoiceConfig.lineUri) {
-                            setPhoneNumber(userVoiceConfig.lineUri);
-                            handlePhoneNumberChange(userVoiceConfig.lineUri);
-                          }
-                          if (userVoiceConfig.voiceRoutingPolicy && routingPolicies) {
-                            // Normalize policy name for matching (remove Tag: prefix, trim, lowercase)
-                            const normalizedUserPolicy = userVoiceConfig.voiceRoutingPolicy
-                              .replace(/^Tag:/i, "")
-                              .trim()
-                              .toLowerCase();
+                    <div className="flex gap-2 pt-1">
+                      {userVoiceConfig.lineUri && (
+                        <>
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="h-auto p-0 text-xs text-blue-600 dark:text-blue-400"
+                            onClick={() => {
+                              if (userVoiceConfig.lineUri) {
+                                setPhoneNumber(userVoiceConfig.lineUri);
+                                handlePhoneNumberChange(userVoiceConfig.lineUri);
+                              }
+                              if (userVoiceConfig.voiceRoutingPolicy && routingPolicies) {
+                                // Normalize policy name for matching (remove Tag: prefix, trim, lowercase)
+                                const normalizedUserPolicy = userVoiceConfig.voiceRoutingPolicy
+                                  .replace(/^Tag:/i, "")
+                                  .trim()
+                                  .toLowerCase();
 
-                            console.log('[Load Values] Looking for policy:', {
-                              raw: userVoiceConfig.voiceRoutingPolicy,
-                              normalized: normalizedUserPolicy,
-                              availablePolicies: (routingPolicies as VoiceRoutingPolicy[]).map(p => ({
-                                id: p.id,
-                                name: p.name
-                              }))
-                            });
+                                console.log('[Load Values] Looking for policy:', {
+                                  raw: userVoiceConfig.voiceRoutingPolicy,
+                                  normalized: normalizedUserPolicy,
+                                  availablePolicies: (routingPolicies as VoiceRoutingPolicy[]).map(p => ({
+                                    id: p.id,
+                                    name: p.name
+                                  }))
+                                });
 
-                            // Find policy by matching normalized names or IDs
-                            const matchingPolicy = (routingPolicies as VoiceRoutingPolicy[]).find((p) => {
-                              const normalizedPolicyName = p.name.replace(/^Tag:/i, "").trim().toLowerCase();
-                              const normalizedPolicyId = p.id.replace(/^Tag:/i, "").trim().toLowerCase();
+                                // Find policy by matching normalized names or IDs
+                                const matchingPolicy = (routingPolicies as VoiceRoutingPolicy[]).find((p) => {
+                                  const normalizedPolicyName = p.name.replace(/^Tag:/i, "").trim().toLowerCase();
+                                  const normalizedPolicyId = p.id.replace(/^Tag:/i, "").trim().toLowerCase();
 
-                              return normalizedPolicyName === normalizedUserPolicy ||
-                                     normalizedPolicyId === normalizedUserPolicy;
-                            });
+                                  return normalizedPolicyName === normalizedUserPolicy ||
+                                         normalizedPolicyId === normalizedUserPolicy;
+                                });
 
-                            if (matchingPolicy) {
-                              console.log('[Load Values] Found matching policy:', matchingPolicy);
-                              setSelectedPolicy(matchingPolicy.id);
-                            } else {
-                              console.warn('[Load Values] No matching policy found for:', userVoiceConfig.voiceRoutingPolicy);
+                                if (matchingPolicy) {
+                                  console.log('[Load Values] Found matching policy:', matchingPolicy);
+                                  setSelectedPolicy(matchingPolicy.id);
+                                } else {
+                                  console.warn('[Load Values] No matching policy found for:', userVoiceConfig.voiceRoutingPolicy);
+                                  toast({
+                                    title: "Policy not found",
+                                    description: `Could not find policy "${userVoiceConfig.voiceRoutingPolicy}" in the available policies`,
+                                    variant: "destructive",
+                                  });
+                                }
+                              }
                               toast({
-                                title: "Policy not found",
-                                description: `Could not find policy "${userVoiceConfig.voiceRoutingPolicy}" in the available policies`,
-                                variant: "destructive",
+                                title: "Form pre-filled",
+                                description: "Current values have been loaded into the form",
                               });
+                            }}
+                          >
+                            Load values →
+                          </Button>
+                          <Button
+                            variant="link"
+                            size="sm"
+                            className="h-auto p-0 text-xs text-red-600 dark:text-red-400"
+                            onClick={() => {
+                              if (confirm(`Remove phone number ${userVoiceConfig.lineUri} from ${selectedUser?.displayName}?`)) {
+                                removeAssignmentMutation.mutate({
+                                  userPrincipalName: selectedUser!.userPrincipalName,
+                                  phoneNumber: userVoiceConfig.lineUri!,
+                                });
+                              }
+                            }}
+                            disabled={removeAssignmentMutation.isPending}
+                          >
+                            {removeAssignmentMutation.isPending ? (
+                              <><Loader2 className="w-3 h-3 mr-1 animate-spin inline" /> Removing...</>
+                            ) : (
+                              <><PhoneOff className="w-3 h-3 mr-1 inline" /> Remove Phone</>
+                            )}
+                          </Button>
+                        </>
+                      )}
+                      {userVoiceConfig.voiceRoutingPolicy && userVoiceConfig.voiceRoutingPolicy !== "Global" && (
+                        <Button
+                          variant="link"
+                          size="sm"
+                          className="h-auto p-0 text-xs text-orange-600 dark:text-orange-400"
+                          onClick={() => {
+                            if (confirm(`Reset voice routing policy to Global for ${selectedUser?.displayName}?`)) {
+                              resetPolicyMutation.mutate(selectedUser!.userPrincipalName);
                             }
-                          }
-                          toast({
-                            title: "Form pre-filled",
-                            description: "Current values have been loaded into the form",
-                          });
-                        }}
-                      >
-                        Load current values into form →
-                      </Button>
-                    )}
+                          }}
+                          disabled={resetPolicyMutation.isPending}
+                        >
+                          {resetPolicyMutation.isPending ? (
+                            <><Loader2 className="w-3 h-3 mr-1 animate-spin inline" /> Resetting...</>
+                          ) : (
+                            <><RotateCcw className="w-3 h-3 mr-1 inline" /> Reset to Global</>
+                          )}
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}

@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Save, Phone, Plus, Edit, Trash2, Download, Upload, BarChart3, Filter, Search, RefreshCw } from "lucide-react";
+import { Loader2, Save, Phone, Plus, Edit, Trash2, Download, Upload, BarChart3, Filter, Search, RefreshCw, PhoneOff, RotateCcw } from "lucide-react";
 import { TenantSelector } from "@/components/tenant-selector";
 import { TeamsSyncDialog } from "@/components/teams-sync-dialog";
 import type { CustomerTenant, PhoneNumberInventory, InsertPhoneNumberInventory, NumberStatus, NumberType, OperatorSession } from "@shared/schema";
@@ -205,6 +205,58 @@ export default function NumberManagement() {
     onError: (error: Error) => {
       toast({
         title: "Failed to delete number",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Mutation to remove phone number assignment from Teams
+  const removeAssignmentMutation = useMutation({
+    mutationFn: async ({ userPrincipalName, phoneNumber }: { userPrincipalName: string; phoneNumber: string }) => {
+      const response = await apiRequest("POST", "/api/numbers/remove-assignment", {
+        tenantId: selectedTenant?.id,
+        userPrincipalName,
+        phoneNumber,
+        phoneNumberType: "DirectRouting",
+      });
+      return await response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Phone number removed from Teams",
+        description: data.message || "The phone number assignment has been removed",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/numbers", selectedTenant?.id] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to remove phone number",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Mutation to reset voice routing policy to Global
+  const resetPolicyMutation = useMutation({
+    mutationFn: async (userPrincipalName: string) => {
+      const response = await apiRequest("POST", "/api/numbers/reset-policy", {
+        tenantId: selectedTenant?.id,
+        userPrincipalName,
+      });
+      return await response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Policy reset to Global",
+        description: data.message || "Voice routing policy has been reset to default",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/numbers", selectedTenant?.id] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to reset policy",
         description: error.message,
         variant: "destructive",
       });
@@ -1074,7 +1126,7 @@ export default function NumberManagement() {
                           <TableCell>{number.carrier || "-"}</TableCell>
                           <TableCell>{number.location || "-"}</TableCell>
                           <TableCell>
-                            <div className="flex gap-2">
+                            <div className="flex gap-1">
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -1082,9 +1134,51 @@ export default function NumberManagement() {
                                   setSelectedNumber(number);
                                   setIsEditDialogOpen(true);
                                 }}
+                                title="Edit number"
                               >
                                 <Edit className="w-4 h-4" />
                               </Button>
+                              {number.userPrincipalName && (
+                                <>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      if (confirm(`Remove phone number ${number.lineUri} from ${number.userPrincipalName} in Teams?`)) {
+                                        removeAssignmentMutation.mutate({
+                                          userPrincipalName: number.userPrincipalName!,
+                                          phoneNumber: number.lineUri,
+                                        });
+                                      }
+                                    }}
+                                    disabled={removeAssignmentMutation.isPending}
+                                    title="Remove phone assignment from Teams"
+                                  >
+                                    {removeAssignmentMutation.isPending ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <PhoneOff className="w-4 h-4" />
+                                    )}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      if (confirm(`Reset voice routing policy to Global for ${number.userPrincipalName}?`)) {
+                                        resetPolicyMutation.mutate(number.userPrincipalName!);
+                                      }
+                                    }}
+                                    disabled={resetPolicyMutation.isPending}
+                                    title="Reset voice routing policy to Global"
+                                  >
+                                    {resetPolicyMutation.isPending ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <RotateCcw className="w-4 h-4" />
+                                    )}
+                                  </Button>
+                                </>
+                              )}
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -1092,6 +1186,7 @@ export default function NumberManagement() {
                                   setSelectedNumber(number);
                                   setIsDeleteDialogOpen(true);
                                 }}
+                                title="Delete number from inventory"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </Button>

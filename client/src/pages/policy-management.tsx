@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Save, Shield, Users } from "lucide-react";
+import { Loader2, Save, Shield, Users, RotateCcw } from "lucide-react";
 import { TenantSelector } from "@/components/tenant-selector";
 import { UserSearchCombobox } from "@/components/user-search-combobox";
 import type { TeamsUser, CustomerTenant, PolicyType, TeamsPolicy, policyTypeConfig } from "@shared/schema";
@@ -101,6 +101,32 @@ export default function PolicyManagement() {
       const policyDisplayName = policyConfig[variables.policyType].displayName;
       toast({
         title: `Failed to assign ${policyDisplayName}`,
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Mutation to reset voice routing policy to Global
+  const resetPolicyMutation = useMutation({
+    mutationFn: async (userPrincipalName: string) => {
+      const response = await apiRequest("POST", "/api/numbers/reset-policy", {
+        tenantId: selectedTenant?.id,
+        userPrincipalName,
+      });
+      return await response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Policy reset to Global",
+        description: data.message || "Voice routing policy has been reset to default",
+      });
+      setSelectedPolicyId("");
+      queryClient.invalidateQueries({ queryKey: ["/api/teams/users", selectedTenant?.id] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to reset policy",
         description: error.message,
         variant: "destructive",
       });
@@ -294,6 +320,30 @@ export default function PolicyManagement() {
                           </>
                         )}
                       </Button>
+                      {selectedPolicyType === "voiceRouting" && selectedUser && (
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            if (confirm(`Reset voice routing policy to Global for ${selectedUser.displayName}?`)) {
+                              resetPolicyMutation.mutate(selectedUser.userPrincipalName);
+                            }
+                          }}
+                          disabled={resetPolicyMutation.isPending}
+                          className="h-11 px-6"
+                        >
+                          {resetPolicyMutation.isPending ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              Resetting...
+                            </>
+                          ) : (
+                            <>
+                              <RotateCcw className="w-4 h-4 mr-2" />
+                              Reset to Global
+                            </>
+                          )}
+                        </Button>
+                      )}
                     </div>
                   </TabsContent>
                 ))}

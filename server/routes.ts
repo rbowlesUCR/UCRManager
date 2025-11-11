@@ -1599,6 +1599,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Remove phone number assignment from a user in Teams
+  app.post("/api/numbers/remove-assignment", requireOperatorAuth, async (req, res) => {
+    try {
+      const { tenantId, userPrincipalName, phoneNumber, phoneNumberType } = req.body;
+
+      if (!tenantId || !userPrincipalName || !phoneNumber) {
+        return res.status(400).json({ error: "Tenant ID, user principal name, and phone number are required" });
+      }
+
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      const { removePhoneNumberAssignment } = await import("./teams-sync");
+      const result = await removePhoneNumberAssignment(
+        tenant,
+        userPrincipalName,
+        phoneNumber,
+        phoneNumberType || "DirectRouting"
+      );
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error removing phone number assignment:", error);
+      res.status(500).json({
+        error: "Failed to remove phone number assignment",
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Reset voice routing policy to Global (default) for a user in Teams
+  app.post("/api/numbers/reset-policy", requireOperatorAuth, async (req, res) => {
+    try {
+      const { tenantId, userPrincipalName } = req.body;
+
+      if (!tenantId || !userPrincipalName) {
+        return res.status(400).json({ error: "Tenant ID and user principal name are required" });
+      }
+
+      const tenant = await storage.getTenant(tenantId);
+      if (!tenant) {
+        return res.status(404).json({ error: "Tenant not found" });
+      }
+
+      const { resetVoiceRoutingPolicy } = await import("./teams-sync");
+      const result = await resetVoiceRoutingPolicy(tenant, userPrincipalName);
+
+      res.json(result);
+    } catch (error) {
+      console.error("Error resetting voice routing policy:", error);
+      res.status(500).json({
+        error: "Failed to reset voice routing policy",
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
   // ===== TEAMS VOICE MANAGEMENT ROUTES =====
 
   // Get Teams voice-enabled users for a tenant
