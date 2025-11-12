@@ -10,6 +10,7 @@ import AdminLogin from "@/pages/admin-login";
 import Dashboard from "@/pages/dashboard";
 import PolicyManagement from "@/pages/policy-management";
 import NumberManagement from "@/pages/number-management";
+import ThreeCXManagement from "@/pages/3cx-management";
 import AdminAuditLogs from "@/pages/admin-audit-logs";
 import AdminCustomerTenants from "@/pages/admin-customer-tenants";
 import AdminDocumentation from "@/pages/admin-documentation";
@@ -91,6 +92,9 @@ function Router() {
       </Route>
       <Route path="/numbers">
         {() => <ProtectedRoute component={NumberManagement} />}
+      </Route>
+      <Route path="/3cx">
+        {() => <ProtectedRoute component={ThreeCXManagement} />}
       </Route>
       <Route path="/admin/audit-logs">
         {() => <ProtectedAdminRoute component={AdminAuditLogs} />}

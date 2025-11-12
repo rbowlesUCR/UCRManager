@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { LogOut, User, Settings, Phone, Shield, Hash } from "lucide-react";
+import { LogOut, User, Settings, Phone, Shield, Hash, Server } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import type { OperatorSession, FeatureFlag } from "@shared/schema";
 
@@ -31,6 +31,21 @@ export function Layout({ children }: LayoutProps) {
     },
   });
 
+  // Fetch 3CX integration feature flag
+  const { data: threeCXFlag } = useQuery<FeatureFlag>({
+    queryKey: ["/api/feature-flags/3cx_integration"],
+    enabled: !!session, // Only fetch when user is logged in
+    queryFn: async () => {
+      const res = await fetch("/api/feature-flags/3cx_integration", {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        return { isEnabled: false }; // Default to disabled if fetch fails
+      }
+      return await res.json();
+    },
+  });
+
   const handleLogout = async () => {
     await apiRequest("POST", "/api/auth/logout", {});
     setLocation("/");
@@ -41,6 +56,9 @@ export function Layout({ children }: LayoutProps) {
 
   // Check if number management feature is enabled
   const isNumberManagementEnabled = numberManagementFlag?.isEnabled ?? false;
+
+  // Check if 3CX integration feature is enabled
+  const is3CXEnabled = threeCXFlag?.isEnabled ?? false;
 
   return (
     <div className="min-h-screen bg-background">
@@ -142,6 +160,18 @@ export function Layout({ children }: LayoutProps) {
                 >
                   <Hash className="w-4 h-4 mr-2" />
                   Number Management
+                </Button>
+              </Link>
+            )}
+            {is3CXEnabled && (
+              <Link href="/3cx">
+                <Button
+                  variant={location === "/3cx" ? "default" : "ghost"}
+                  className="h-12 rounded-none border-b-2 border-transparent data-[active=true]:border-primary"
+                  data-active={location === "/3cx"}
+                >
+                  <Server className="w-4 h-4 mr-2" />
+                  3CX Management
                 </Button>
               </Link>
             )}
