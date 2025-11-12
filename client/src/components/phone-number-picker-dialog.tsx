@@ -8,8 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, RefreshCw, Phone, Search, CheckCircle2, AlertCircle, Database } from "lucide-react";
-import type { CustomerTenant, PhoneNumberInventory } from "@shared/schema";
+import { Loader2, RefreshCw, Phone, Search, CheckCircle2, AlertCircle, Database, Filter } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { CustomerTenant, PhoneNumberInventory, CountryCode } from "@shared/schema";
 
 interface PhoneNumberPickerDialogProps {
   open: boolean;
@@ -48,6 +49,7 @@ export function PhoneNumberPickerDialog({
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [countryFilter, setCountryFilter] = useState<string>("all");
   const [selectedNumber, setSelectedNumber] = useState<PhoneNumberInventory | null>(null);
 
   // Reset state when dialog opens
@@ -56,6 +58,7 @@ export function PhoneNumberPickerDialog({
       setStep("sync");
       setSyncResult(null);
       setSearchQuery("");
+      setCountryFilter("all");
       setSelectedNumber(null);
     }
   }, [open]);
@@ -67,12 +70,31 @@ export function PhoneNumberPickerDialog({
     }
   }, [open, tenant, step]);
 
-  // Fetch available phone numbers
-  const { data: phoneNumbers, isLoading: isLoadingNumbers, refetch: refetchNumbers } = useQuery({
-    queryKey: ["/api/numbers/available", tenant?.id],
+  // Fetch available countries for the tenant
+  const { data: availableCountries } = useQuery<CountryCode[]>({
+    queryKey: ["/api/numbers/available-countries", tenant?.id],
     enabled: !!tenant && step === "select",
     queryFn: async () => {
-      const res = await fetch(`/api/numbers?tenantId=${tenant!.id}&status=available`, {
+      const res = await fetch(`/api/numbers/available-countries?tenantId=${tenant!.id}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+      return await res.json();
+    },
+  });
+
+  // Fetch available phone numbers
+  const { data: phoneNumbers, isLoading: isLoadingNumbers, refetch: refetchNumbers } = useQuery({
+    queryKey: ["/api/numbers/available", tenant?.id, countryFilter],
+    enabled: !!tenant && step === "select",
+    queryFn: async () => {
+      let url = `/api/numbers?tenantId=${tenant!.id}&status=available`;
+      if (countryFilter && countryFilter !== "all") {
+        url += `&countryCode=${countryFilter}`;
+      }
+      const res = await fetch(url, {
         credentials: "include",
       });
       if (!res.ok) {
@@ -295,6 +317,24 @@ export function PhoneNumberPickerDialog({
             </DialogHeader>
 
             <div className="space-y-4 py-4">
+              {/* Filters */}
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-muted-foreground" />
+                <Select value={countryFilter} onValueChange={(value) => setCountryFilter(value)}>
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue placeholder="All Countries" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Countries</SelectItem>
+                    {availableCountries?.map((country) => (
+                      <SelectItem key={country.id} value={country.countryCode}>
+                        {country.flag} {country.countryName} ({country.countryCode})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
               {/* Search */}
               <div className="flex items-center gap-2">
                 <Search className="w-4 h-4 text-muted-foreground" />

@@ -15,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Save, Phone, Plus, Edit, Trash2, Download, Upload, BarChart3, Filter, Search, RefreshCw, PhoneOff, RotateCcw } from "lucide-react";
 import { TenantSelector } from "@/components/tenant-selector";
 import { TeamsSyncDialog } from "@/components/teams-sync-dialog";
-import type { CustomerTenant, PhoneNumberInventory, InsertPhoneNumberInventory, NumberStatus, NumberType, OperatorSession } from "@shared/schema";
+import type { CustomerTenant, PhoneNumberInventory, InsertPhoneNumberInventory, NumberStatus, NumberType, OperatorSession, CountryCode } from "@shared/schema";
 
 export default function NumberManagement() {
   const { toast } = useToast();
@@ -27,6 +27,24 @@ export default function NumberManagement() {
   });
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [countryFilter, setCountryFilter] = useState<string>("all");
+
+  // Fetch available countries for the tenant
+  const { data: availableCountries } = useQuery<CountryCode[]>({
+    queryKey: ["/api/numbers/available-countries", selectedTenant?.id],
+    enabled: !!selectedTenant,
+    queryFn: async () => {
+      const res = await fetch(`/api/numbers/available-countries?tenantId=${selectedTenant?.id}`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`${res.status}: ${text}`);
+      }
+      return await res.json();
+    },
+  });
+
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -61,12 +79,13 @@ export default function NumberManagement() {
 
   // Fetch phone numbers when tenant is selected
   const { data: phoneNumbers, isLoading: isLoadingNumbers } = useQuery({
-    queryKey: ["/api/numbers", selectedTenant?.id, statusFilter, typeFilter],
+    queryKey: ["/api/numbers", selectedTenant?.id, statusFilter, typeFilter, countryFilter],
     enabled: !!selectedTenant,
     queryFn: async () => {
       let url = `/api/numbers?tenantId=${selectedTenant?.id}`;
       if (statusFilter && statusFilter !== "all") url += `&status=${statusFilter}`;
       if (typeFilter && typeFilter !== "all") url += `&numberType=${typeFilter}`;
+      if (countryFilter && countryFilter !== "all") url += `&countryCode=${countryFilter}`;
 
       const res = await fetch(url, {
         credentials: "include",
@@ -100,6 +119,7 @@ export default function NumberManagement() {
     if (selectedTenant) {
       setStatusFilter("all");
       setTypeFilter("all");
+      setCountryFilter("all");
       setShowStats(false);
     }
   }, [selectedTenant?.id]);
@@ -1106,6 +1126,20 @@ export default function NumberManagement() {
                     <SelectItem value="extension">Extension</SelectItem>
                     <SelectItem value="toll-free">Toll-Free</SelectItem>
                     <SelectItem value="mailbox">Mailbox</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Select value={countryFilter} onValueChange={(value) => setCountryFilter(value)}>
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue placeholder="All Countries" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Countries</SelectItem>
+                    {availableCountries?.map((country) => (
+                      <SelectItem key={country.id} value={country.countryCode}>
+                        {country.flag} {country.countryName} ({country.countryCode})
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
