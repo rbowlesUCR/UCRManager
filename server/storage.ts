@@ -32,7 +32,7 @@ import {
   type InsertFeatureFlag,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, inArray } from "drizzle-orm";
 
 export interface IStorage {
   // Admin users
@@ -376,13 +376,13 @@ export class DatabaseStorage implements IStorage {
       ));
 
     // Get full country code details for each code
-    const codes = distinctCodes.map(d => d.countryCode).filter(Boolean);
+    const codes = distinctCodes.map(d => d.countryCode).filter((code): code is string => code !== null);
     if (codes.length === 0) return [];
 
     const countries = await db
       .select()
       .from(countryCodes)
-      .where(sql`${countryCodes.countryCode} IN (${sql.join(codes.map(c => sql`${c}`), sql`, `)})`)
+      .where(inArray(countryCodes.countryCode, codes))
       .orderBy(countryCodes.countryName);
 
     return countries;
