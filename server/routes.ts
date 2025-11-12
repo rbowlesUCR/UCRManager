@@ -1139,9 +1139,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const filters: any = { tenantId };
       if (status && typeof status === "string") filters.status = status;
       if (numberType && typeof numberType === "string") filters.numberType = numberType;
-      if (countryCode && typeof countryCode === "string") filters.countryCode = countryCode;
+      if (countryCode && typeof countryCode === "string") {
+        console.log(`[Number Filter] Country code received: "${countryCode}"`);
+        filters.countryCode = countryCode;
+      }
 
       const numbers = await storage.getPhoneNumbers(filters);
+      console.log(`[Number Filter] Found ${numbers.length} numbers for filters:`, filters);
       res.json(numbers);
     } catch (error) {
       console.error("Error fetching phone numbers:", error);

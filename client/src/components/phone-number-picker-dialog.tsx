@@ -92,7 +92,7 @@ export function PhoneNumberPickerDialog({
     queryFn: async () => {
       let url = `/api/numbers?tenantId=${tenant!.id}&status=available`;
       if (countryFilter && countryFilter !== "all") {
-        url += `&countryCode=${countryFilter}`;
+        url += `&countryCode=${encodeURIComponent(countryFilter)}`;
       }
       const res = await fetch(url, {
         credentials: "include",

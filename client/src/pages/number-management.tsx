@@ -85,7 +85,7 @@ export default function NumberManagement() {
       let url = `/api/numbers?tenantId=${selectedTenant?.id}`;
       if (statusFilter && statusFilter !== "all") url += `&status=${statusFilter}`;
       if (typeFilter && typeFilter !== "all") url += `&numberType=${typeFilter}`;
-      if (countryFilter && countryFilter !== "all") url += `&countryCode=${countryFilter}`;
+      if (countryFilter && countryFilter !== "all") url += `&countryCode=${encodeURIComponent(countryFilter)}`;
 
       const res = await fetch(url, {
         credentials: "include",
