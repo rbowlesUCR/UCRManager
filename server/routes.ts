@@ -1130,7 +1130,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all phone numbers for a tenant
   app.get("/api/numbers", requireOperatorAuth, async (req, res) => {
     try {
-      const { tenantId, status, numberType } = req.query;
+      const { tenantId, status, numberType, countryCode } = req.query;
 
       if (!tenantId || typeof tenantId !== "string") {
         return res.status(400).json({ error: "Tenant ID is required" });
@@ -1139,12 +1139,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const filters: any = { tenantId };
       if (status && typeof status === "string") filters.status = status;
       if (numberType && typeof numberType === "string") filters.numberType = numberType;
+      if (countryCode && typeof countryCode === "string") filters.countryCode = countryCode;
 
       const numbers = await storage.getPhoneNumbers(filters);
       res.json(numbers);
     } catch (error) {
       console.error("Error fetching phone numbers:", error);
       res.status(500).json({ error: "Failed to fetch phone numbers" });
+    }
+  });
+
+  // Get available country codes for a tenant (only countries with numbers in inventory)
+  app.get("/api/numbers/available-countries", requireOperatorAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.query;
+
+      if (!tenantId || typeof tenantId !== "string") {
+        return res.status(400).json({ error: "Tenant ID is required" });
+      }
+
+      const countries = await storage.getAvailableCountryCodes(tenantId);
+      res.json(countries);
+    } catch (error) {
+      console.error("Error fetching available countries:", error);
+      res.status(500).json({ error: "Failed to fetch available countries" });
     }
   });
 

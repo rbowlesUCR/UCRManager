@@ -114,6 +114,7 @@ export const phoneNumberInventory = pgTable("phone_number_inventory", {
   carrier: text("carrier"), // Service provider/carrier name
   location: text("location"), // Physical location (e.g., "New York Office")
   usageLocation: text("usage_location"), // ISO country code or usage region
+  countryCode: text("country_code"), // E.164 country code (e.g., "+1", "+44") - references country_codes table
 
   // Teams/UC configuration
   onlineVoiceRoutingPolicy: text("online_voice_routing_policy"), // Associated voice routing policy
@@ -142,6 +143,17 @@ export const phoneNumberInventory = pgTable("phone_number_inventory", {
   lastModifiedBy: text("last_modified_by").notNull(), // Last operator to modify
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Country codes table - reference data for international dialing codes
+export const countryCodes = pgTable("country_codes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  countryCode: text("country_code").notNull().unique(), // E.164 country code (e.g., "+1", "+44", "+61")
+  countryName: text("country_name").notNull(), // Full country name (e.g., "United States")
+  iso2: text("iso2").notNull(), // ISO 3166-1 alpha-2 code (e.g., "US", "GB", "AU")
+  iso3: text("iso3").notNull(), // ISO 3166-1 alpha-3 code (e.g., "USA", "GBR", "AUS")
+  region: text("region"), // Geographic region (e.g., "North America", "Europe")
+  flag: text("flag"), // Unicode flag emoji (e.g., "🇺🇸", "🇬🇧", "🇦🇺")
 });
 
 // Feature flags table - controls which features are enabled in the application
@@ -202,6 +214,10 @@ export const insertPhoneNumberInventorySchema = createInsertSchema(phoneNumberIn
   updatedAt: true,
 });
 
+export const insertCountryCodeSchema = createInsertSchema(countryCodes).omit({
+  id: true,
+});
+
 export const insertFeatureFlagSchema = createInsertSchema(featureFlags).omit({
   id: true,
   createdAt: true,
@@ -232,6 +248,9 @@ export type InsertTenantPowershellCredentials = z.infer<typeof insertTenantPower
 
 export type PhoneNumberInventory = typeof phoneNumberInventory.$inferSelect;
 export type InsertPhoneNumberInventory = z.infer<typeof insertPhoneNumberInventorySchema>;
+
+export type CountryCode = typeof countryCodes.$inferSelect;
+export type InsertCountryCode = z.infer<typeof insertCountryCodeSchema>;
 
 export type FeatureFlag = typeof featureFlags.$inferSelect;
 export type InsertFeatureFlag = z.infer<typeof insertFeatureFlagSchema>;

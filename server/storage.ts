@@ -8,6 +8,7 @@ import {
   operatorUsers,
   tenantPowershellCredentials,
   phoneNumberInventory,
+  countryCodes,
   featureFlags,
   type AdminUser,
   type InsertAdminUser,
@@ -25,6 +26,8 @@ import {
   type InsertTenantPowershellCredentials,
   type PhoneNumberInventory,
   type InsertPhoneNumberInventory,
+  type CountryCode,
+  type InsertCountryCode,
   type FeatureFlag,
   type InsertFeatureFlag,
 } from "@shared/schema";
@@ -338,6 +341,7 @@ export class DatabaseStorage implements IStorage {
     tenantId: string;
     status?: string;
     numberType?: string;
+    countryCode?: string;
   }): Promise<PhoneNumberInventory[]> {
     const conditions = [eq(phoneNumberInventory.tenantId, filters.tenantId)];
 
@@ -347,6 +351,9 @@ export class DatabaseStorage implements IStorage {
     if (filters.numberType) {
       conditions.push(eq(phoneNumberInventory.numberType, filters.numberType));
     }
+    if (filters.countryCode) {
+      conditions.push(eq(phoneNumberInventory.countryCode, filters.countryCode));
+    }
 
     const numbers = await db
       .select()
@@ -355,6 +362,30 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(phoneNumberInventory.createdAt));
 
     return numbers;
+  }
+
+  // Get available country codes for a tenant (only countries with numbers in inventory)
+  async getAvailableCountryCodes(tenantId: string): Promise<CountryCode[]> {
+    // Get distinct country codes from phone number inventory for this tenant
+    const distinctCodes = await db
+      .selectDistinct({ countryCode: phoneNumberInventory.countryCode })
+      .from(phoneNumberInventory)
+      .where(and(
+        eq(phoneNumberInventory.tenantId, tenantId),
+        sql`${phoneNumberInventory.countryCode} IS NOT NULL`
+      ));
+
+    // Get full country code details for each code
+    const codes = distinctCodes.map(d => d.countryCode).filter(Boolean);
+    if (codes.length === 0) return [];
+
+    const countries = await db
+      .select()
+      .from(countryCodes)
+      .where(sql`${countryCodes.countryCode} IN (${sql.join(codes.map(c => sql`${c}`), sql`, `)})`)
+      .orderBy(countryCodes.countryName);
+
+    return countries;
   }
 
   // Get single phone number by ID
