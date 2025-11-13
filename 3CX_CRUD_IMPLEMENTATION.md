@@ -528,6 +528,16 @@ Status: ✅ Success
    - No bulk create/update/delete UI
    - Could be added as enhancement
 
+6. **DID/Phone Number Creation** ⚠️ **CONFIRMED LIMITATION**:
+   - 3CX Configuration API does NOT support creating DIDs via REST
+   - All endpoints return 405 Method Not Allowed for POST operations
+   - Evidence: DidNumbers, DepartmentPhoneNumbers, SystemPhoneNumbers, PhoneNumbers all return 405
+   - DIDs are READ-ONLY via xapi/v1 endpoints
+   - **Workaround**: DIDs must be added manually via 3CX admin console
+   - **UI Impact**: "Add DID" button should be removed or disabled with info tooltip
+   - DIDs are typically provisioned by carrier and configured in 3CX PBX
+   - Alternative: Check if legacy WebAPI (/webapi/{accessKey}/did.create) supports creation
+
 ### Potential Issues
 
 1. **3CX API Version Compatibility**:

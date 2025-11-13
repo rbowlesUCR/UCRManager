@@ -4304,7 +4304,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { token, serverUrl } = await get3CXAccessToken(tenantId, mfaCode as string);
 
       // Try possible endpoints for creating phone numbers
-      const possibleEndpoints = ['DepartmentPhoneNumbers', 'SystemPhoneNumbers', 'PhoneNumbers'];
+      const possibleEndpoints = ['DidNumbers', 'DepartmentPhoneNumbers', 'SystemPhoneNumbers', 'PhoneNumbers'];
 
       for (const endpoint of possibleEndpoints) {
         const apiUrl = `${serverUrl}/xapi/v1/${endpoint}`;
@@ -4325,16 +4325,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const data = await response.json();
             console.log(`[3CX API] Phone number created successfully at ${endpoint}`);
             return res.json(data);
-          } else if (response.status === 404 || response.status === 405) {
-            // Try next endpoint
-            continue;
           } else {
             const errorText = await response.text();
-            console.error(`[3CX API] Failed to create phone number at ${endpoint}: ${errorText}`);
-            return res.status(response.status).json({ error: errorText });
+            console.log(`[3CX API] ✗ ${endpoint} returned ${response.status}: ${errorText.substring(0, 200)}`);
+
+            if (response.status === 404 || response.status === 405) {
+              // Try next endpoint
+              continue;
+            } else {
+              console.error(`[3CX API] Failed to create phone number at ${endpoint}`);
+              return res.status(response.status).json({ error: errorText });
+            }
           }
         } catch (err) {
-          console.log(`[3CX API] Error with ${endpoint}:`, err.message);
+          console.log(`[3CX API] ✗ Exception with ${endpoint}:`, err.message);
           continue;
         }
       }

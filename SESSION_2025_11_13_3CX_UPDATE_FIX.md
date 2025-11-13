@@ -236,6 +236,35 @@ queryParams.set('$select', 'Id,Number,FirstName,LastName,DisplayName,EmailAddres
 
 ---
 
+## ⚠️ API Limitations Discovered
+
+### DID/Phone Number Creation Not Supported
+**Finding**: 3CX Configuration API does not support creating DIDs via REST API
+
+**Evidence**:
+```
+[3CX API] ✗ DidNumbers returned 405 (Method Not Allowed)
+[3CX API] ✗ DepartmentPhoneNumbers returned 405
+[3CX API] ✗ SystemPhoneNumbers returned 405
+[3CX API] ✗ PhoneNumbers returned 405
+```
+
+**Explanation**:
+- All phone number endpoints return 405 for POST requests
+- 405 = Method Not Allowed (endpoint exists, but POST not supported)
+- DIDs can be READ but not CREATED/UPDATED/DELETED via xapi/v1
+- DIDs are typically provisioned by carrier and configured in 3CX admin console
+
+**Recommendation**:
+- Remove "Add DID" button from UI or disable with tooltip
+- Document as known limitation
+- Provide manual workaround: Admin must add DIDs via 3CX admin console
+- Consider showing info message: "DIDs must be added via 3CX admin console"
+
+**Alternative**: Check if WebAPI (/webapi/{accessKey}/did.create) supports DID creation
+
+---
+
 ## 🔗 Related Documentation
 
 ### Previous Sessions
