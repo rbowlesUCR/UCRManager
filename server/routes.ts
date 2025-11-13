@@ -36,6 +36,16 @@ import {
 import { powershellSessionManager } from "./powershell-session";
 import { PolicyType, policyTypeConfig } from "@shared/schema";
 import { format } from "date-fns";
+import {
+  getConnectWiseCredentials,
+  storeConnectWiseCredentials,
+  searchTickets,
+  getTicket,
+  addTicketNote,
+  addTimeEntry,
+  updateTicketStatus,
+  isConnectWiseEnabled,
+} from "./connectwise";
 
 // Helper function to query current user state for audit logging
 async function queryUserState(credentials: PowerShellCertificateCredentials, userPrincipalName: string): Promise<any | null> {
@@ -4555,6 +4565,232 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error serving documentation:", error);
       res.status(500).json({ error: "Failed to load documentation" });
+    }
+  });
+
+  // ============================================================================
+  // ConnectWise PSA Integration Routes
+  // ============================================================================
+
+  // Get ConnectWise credentials for a tenant
+  app.get("/api/admin/tenant/:tenantId/connectwise/credentials", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+
+      const credentials = await getConnectWiseCredentials(tenantId);
+
+      if (!credentials) {
+        return res.json({ configured: false });
+      }
+
+      // Return non-sensitive configuration info
+      res.json({
+        configured: true,
+        baseUrl: credentials.baseUrl,
+        companyId: credentials.companyId,
+        defaultTimeMinutes: credentials.defaultTimeMinutes,
+        autoUpdateStatus: credentials.autoUpdateStatus,
+        defaultStatusId: credentials.defaultStatusId,
+      });
+    } catch (error: any) {
+      console.error("[ConnectWise API] Error fetching credentials:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch credentials" });
+    }
+  });
+
+  // Store/update ConnectWise credentials for a tenant
+  app.post("/api/admin/tenant/:tenantId/connectwise/credentials", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { baseUrl, companyId, publicKey, privateKey, clientId, defaultTimeMinutes, autoUpdateStatus, defaultStatusId } = req.body;
+
+      if (!baseUrl || !companyId || !publicKey || !privateKey || !clientId) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      const adminUserId = (req as any).adminId;
+
+      await storeConnectWiseCredentials(
+        tenantId,
+        {
+          baseUrl,
+          companyId,
+          publicKey,
+          privateKey,
+          clientId,
+          defaultTimeMinutes: defaultTimeMinutes || 15,
+          autoUpdateStatus: autoUpdateStatus || false,
+          defaultStatusId: defaultStatusId || null,
+        },
+        adminUserId
+      );
+
+      res.json({ success: true, message: "ConnectWise credentials saved successfully" });
+    } catch (error: any) {
+      console.error("[ConnectWise API] Error storing credentials:", error);
+      res.status(500).json({ error: error.message || "Failed to store credentials" });
+    }
+  });
+
+  // Check if ConnectWise is enabled for a tenant
+  app.get("/api/admin/tenant/:tenantId/connectwise/enabled", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const enabled = await isConnectWiseEnabled(tenantId);
+      res.json({ enabled });
+    } catch (error: any) {
+      console.error("[ConnectWise API] Error checking enabled status:", error);
+      res.status(500).json({ error: error.message || "Failed to check status" });
+    }
+  });
+
+  // Search for ConnectWise tickets
+  app.get("/api/admin/tenant/:tenantId/connectwise/tickets/search", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { q, limit } = req.query;
+
+      if (!q || typeof q !== 'string') {
+        return res.status(400).json({ error: "Search query required" });
+      }
+
+      const searchLimit = limit ? parseInt(limit as string) : 25;
+      const tickets = await searchTickets(tenantId, q, searchLimit);
+
+      res.json({ tickets });
+    } catch (error: any) {
+      console.error("[ConnectWise API] Error searching tickets:", error);
+      res.status(500).json({ error: error.message || "Failed to search tickets" });
+    }
+  });
+
+  // Get a specific ConnectWise ticket
+  app.get("/api/admin/tenant/:tenantId/connectwise/tickets/:ticketId", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId, ticketId } = req.params;
+
+      const ticket = await getTicket(tenantId, parseInt(ticketId));
+
+      if (!ticket) {
+        return res.status(404).json({ error: "Ticket not found" });
+      }
+
+      res.json({ ticket });
+    } catch (error: any) {
+      console.error("[ConnectWise API] Error fetching ticket:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch ticket" });
+    }
+  });
+
+  // Add a note to a ConnectWise ticket
+  app.post("/api/admin/tenant/:tenantId/connectwise/tickets/:ticketId/notes", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId, ticketId } = req.params;
+      const { noteText, memberIdentifier, isInternal } = req.body;
+
+      if (!noteText) {
+        return res.status(400).json({ error: "Note text required" });
+      }
+
+      await addTicketNote(
+        tenantId,
+        parseInt(ticketId),
+        noteText,
+        memberIdentifier,
+        isInternal || false
+      );
+
+      res.json({ success: true, message: "Note added to ticket" });
+    } catch (error: any) {
+      console.error("[ConnectWise API] Error adding note:", error);
+      res.status(500).json({ error: error.message || "Failed to add note" });
+    }
+  });
+
+  // Add a time entry to a ConnectWise ticket
+  app.post("/api/admin/tenant/:tenantId/connectwise/tickets/:ticketId/time", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId, ticketId } = req.params;
+      const { memberIdentifier, hours, notes, workTypeId } = req.body;
+
+      if (!memberIdentifier || !hours) {
+        return res.status(400).json({ error: "Member identifier and hours required" });
+      }
+
+      await addTimeEntry(
+        tenantId,
+        parseInt(ticketId),
+        memberIdentifier,
+        parseFloat(hours),
+        notes,
+        workTypeId ? parseInt(workTypeId) : undefined
+      );
+
+      res.json({ success: true, message: "Time entry added to ticket" });
+    } catch (error: any) {
+      console.error("[ConnectWise API] Error adding time entry:", error);
+      res.status(500).json({ error: error.message || "Failed to add time entry" });
+    }
+  });
+
+  // Update a ConnectWise ticket status
+  app.patch("/api/admin/tenant/:tenantId/connectwise/tickets/:ticketId/status", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId, ticketId } = req.params;
+      const { statusId } = req.body;
+
+      if (!statusId) {
+        return res.status(400).json({ error: "Status ID required" });
+      }
+
+      await updateTicketStatus(tenantId, parseInt(ticketId), parseInt(statusId));
+
+      res.json({ success: true, message: "Ticket status updated" });
+    } catch (error: any) {
+      console.error("[ConnectWise API] Error updating ticket status:", error);
+      res.status(500).json({ error: error.message || "Failed to update ticket status" });
+    }
+  });
+
+  // Combined action: Add note + time entry + optionally update status
+  app.post("/api/admin/tenant/:tenantId/connectwise/tickets/:ticketId/log-change", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId, ticketId } = req.params;
+      const { noteText, memberIdentifier, hours, updateStatus, statusId } = req.body;
+
+      if (!noteText || !memberIdentifier) {
+        return res.status(400).json({ error: "Note text and member identifier required" });
+      }
+
+      const ticketIdNum = parseInt(ticketId);
+
+      // Add note
+      await addTicketNote(tenantId, ticketIdNum, noteText, memberIdentifier, false);
+
+      // Add time entry (use default from config if not provided)
+      const credentials = await getConnectWiseCredentials(tenantId);
+      const timeHours = hours || (credentials?.defaultTimeMinutes || 15) / 60;
+      await addTimeEntry(tenantId, ticketIdNum, memberIdentifier, timeHours, noteText);
+
+      // Update status if requested
+      if (updateStatus && statusId) {
+        await updateTicketStatus(tenantId, ticketIdNum, parseInt(statusId));
+      } else if (updateStatus && credentials?.autoUpdateStatus && credentials?.defaultStatusId) {
+        await updateTicketStatus(tenantId, ticketIdNum, credentials.defaultStatusId);
+      }
+
+      res.json({
+        success: true,
+        message: "Change logged to ticket successfully",
+        actions: {
+          noteAdded: true,
+          timeAdded: true,
+          statusUpdated: updateStatus || (credentials?.autoUpdateStatus && credentials?.defaultStatusId) ? true : false,
+        }
+      });
+    } catch (error: any) {
+      console.error("[ConnectWise API] Error logging change to ticket:", error);
+      res.status(500).json({ error: error.message || "Failed to log change to ticket" });
     }
   });
 
