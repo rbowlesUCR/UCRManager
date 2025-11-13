@@ -11,6 +11,7 @@ interface UserSearchComboboxProps {
   isLoading: boolean;
   selectedUser: TeamsUser | null;
   onSelectUser: (user: TeamsUser | null) => void;
+  disabled?: boolean;
 }
 
 export function UserSearchCombobox({
@@ -18,6 +19,7 @@ export function UserSearchCombobox({
   isLoading,
   selectedUser,
   onSelectUser,
+  disabled = false,
 }: UserSearchComboboxProps) {
   const [open, setOpen] = useState(false);
 
@@ -29,7 +31,7 @@ export function UserSearchCombobox({
           role="combobox"
           aria-expanded={open}
           className="h-11 w-full justify-between"
-          disabled={isLoading}
+          disabled={isLoading || disabled}
           data-testid="button-user-search"
         >
           {isLoading ? (
