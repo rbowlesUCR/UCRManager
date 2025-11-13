@@ -281,6 +281,49 @@ Phone Number Inventory Management System with Microsoft Teams synchronization ca
 - `client/src/pages/number-management.tsx` - Trigger dialog on tenant selection
 **Result**: Seamless workflow - select tenant, sync starts automatically, review changes, apply. No manual "Sync from Teams" button click needed.
 
+### Issue 12: Phone Number Entry - DID Picklist Requirement ✅ IMPLEMENTED
+**Problem**: Operators could manually type any phone number, leading to potential assignment of invalid or unmanaged numbers
+**Requirements**:
+- Operators must select phone numbers from DID picklist by default
+- Ensure only validated numbers from inventory are assigned
+- Provide admin toggle to enable/disable manual phone number entry
+- Manual entry should be disabled by default for data integrity
+**Changes Applied**:
+- **Database** (feature_flags table):
+  - Created allow_manual_phone_entry feature flag (default: false/disabled)
+  - Controls whether operators can manually type phone numbers
+- **Voice Configuration UI** (client/src/pages/dashboard.tsx):
+  - Added feature flag query to check manual entry permission
+  - Conditional rendering based on flag state:
+    - **Flag disabled (default)**: Phone input is read-only with placeholder "Click 'Select Number' to choose from available DIDs"
+    - **Flag disabled (default)**: Prominent "Select Number" button (variant="default") opens DID picklist
+    - **Flag enabled**: Editable input field allows manual typing
+    - **Flag enabled**: "Select Number" button becomes secondary (variant="outline")
+  - Help text updates based on flag state
+  - Ensures validation: only inventory numbers can be assigned when flag is disabled
+- **Admin Settings** (client/src/pages/admin-settings.tsx):
+  - Added "Voice Configuration Settings" card
+  - Toggle switch for "Allow Manual Phone Number Entry"
+  - Real-time alerts showing current state:
+    - **Disabled**: Info alert confirming picklist-only mode ensures valid numbers
+    - **Enabled**: Warning alert that manual entry may lead to errors
+  - Feature flag query and toggle mutation
+- **Backend API** (server/routes.ts):
+  - Added POST /api/admin/feature-flags/:featureKey/toggle endpoint
+  - Fetches current flag state, toggles boolean, updates database
+  - Returns updated flag state to frontend
+  - Integrates with existing feature flag storage system
+**Files Modified**:
+- client/src/pages/dashboard.tsx - Conditional phone input rendering (60+ lines)
+- client/src/pages/admin-settings.tsx - Toggle UI and mutation (70+ lines)
+- server/routes.ts - Feature flag toggle endpoint (20+ lines)
+- Database: INSERT INTO feature_flags (feature_key, feature_name, description, is_enabled) VALUES ('allow_manual_phone_entry', 'Manual Phone Number Entry', '...', false)
+**Result**:
+- **Default behavior**: Operators MUST select from DID picklist, ensuring data integrity
+- **Admin flexibility**: Can enable manual entry if needed via Settings toggle
+- **Data quality**: Prevents assignment of unmanaged or invalid phone numbers
+- **User experience**: Clear visual feedback showing which mode is active
+
 ---
 
 ## 📊 Current System State
@@ -289,7 +332,7 @@ Phone Number Inventory Management System with Microsoft Teams synchronization ca
 - **Dev Tenant ID**: `83f508e2-0b8b-41da-9dba-8a329305c13e`
 - **Phone Numbers**: 0 (test data cleared)
 - **PowerShell Credentials**: Certificate-based auth configured
-- **Feature Flags**: 2 flags configured (number_management, bulk_assignment)
+- **Feature Flags**: 3 flags configured (number_management, bulk_assignment, allow_manual_phone_entry)
 
 ### Teams Data Available
 - **1 phone number** found in Teams:
