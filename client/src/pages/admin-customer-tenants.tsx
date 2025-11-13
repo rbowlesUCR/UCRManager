@@ -33,12 +33,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Building, Plus, Edit, Trash2, Eye, EyeOff, ShieldCheck, CheckCircle, XCircle, Terminal, AlertCircle } from "lucide-react";
+import { Building, Plus, Edit, Trash2, Eye, EyeOff, ShieldCheck, CheckCircle, XCircle, Terminal, AlertCircle, Server } from "lucide-react";
 import { AdminLayout } from "@/components/admin-layout";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { AdminPowerShellCredentials } from "@/components/admin-powershell-credentials";
+import { Admin3CXCredentials } from "@/components/admin-3cx-credentials";
 import type { CustomerTenant } from "@shared/schema";
 
 interface PermissionValidationResult {
@@ -60,6 +61,9 @@ export default function AdminCustomerTenants() {
 
   // PowerShell credentials state
   const [psConfigTenant, setPsConfigTenant] = useState<CustomerTenant | null>(null);
+
+  // 3CX credentials state
+  const [threeCXConfigTenant, setThreeCXConfigTenant] = useState<CustomerTenant | null>(null);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -210,6 +214,10 @@ export default function AdminCustomerTenants() {
     setPsConfigTenant(tenant);
   };
 
+  const handleConfigure3CX = (tenant: CustomerTenant) => {
+    setThreeCXConfigTenant(tenant);
+  };
+
   return (
     <AdminLayout>
       <div className="space-y-6">
@@ -294,8 +302,18 @@ export default function AdminCustomerTenants() {
                               size="sm"
                               onClick={() => handleConfigurePs(tenant)}
                               data-testid={`button-configure-ps-${tenant.id}`}
+                              title="Configure PowerShell Credentials"
                             >
                               <Terminal className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleConfigure3CX(tenant)}
+                              data-testid={`button-configure-3cx-${tenant.id}`}
+                              title="Configure 3CX Credentials"
+                            >
+                              <Server className="h-4 w-4" />
                             </Button>
                             <Button
                               variant="outline"
@@ -554,6 +572,38 @@ export default function AdminCustomerTenants() {
                 variant="outline"
                 onClick={() => setPsConfigTenant(null)}
                 data-testid="button-close-ps-dialog"
+              >
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* 3CX Credentials Dialog */}
+        <Dialog open={!!threeCXConfigTenant} onOpenChange={(open) => !open && setThreeCXConfigTenant(null)}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Server className="w-5 h-5" />
+                3CX Credentials - {threeCXConfigTenant?.tenantName}
+              </DialogTitle>
+              <DialogDescription>
+                Configure 3CX phone system credentials for this tenant. Supports numeric username/password authentication with optional MFA.
+              </DialogDescription>
+            </DialogHeader>
+
+            {threeCXConfigTenant && (
+              <Admin3CXCredentials
+                tenantId={threeCXConfigTenant.id}
+                tenantName={threeCXConfigTenant.tenantName}
+              />
+            )}
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setThreeCXConfigTenant(null)}
+                data-testid="button-close-3cx-dialog"
               >
                 Close
               </Button>

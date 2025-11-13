@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Save, Phone, Plus, Edit, Trash2, Download, Upload, BarChart3, Filter, Search, RefreshCw, PhoneOff, RotateCcw } from "lucide-react";
+import { Loader2, Save, Phone, Plus, Edit, Trash2, Download, Upload, BarChart3, Filter, Search, RefreshCw, PhoneOff, RotateCcw, Settings, Eye, EyeOff } from "lucide-react";
 import { TenantSelector } from "@/components/tenant-selector";
 import { TeamsSyncDialog } from "@/components/teams-sync-dialog";
 import type { CustomerTenant, PhoneNumberInventory, InsertPhoneNumberInventory, NumberStatus, NumberType, OperatorSession, CountryCode } from "@shared/schema";
@@ -28,6 +28,46 @@ export default function NumberManagement() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [countryFilter, setCountryFilter] = useState<string>("all");
+
+  // Column visibility
+  const [visibleColumns, setVisibleColumns] = useState({
+    lineUri: true,
+    displayName: true,
+    userPrincipalName: true,
+    status: true,
+    numberType: true,
+    system: true,
+    carrier: true,
+    location: true,
+  });
+
+  const [showColumnSelector, setShowColumnSelector] = useState(false);
+
+  // Helper to parse and display system badges
+  const parseSystemTypes = (systemType: string | null): string[] => {
+    if (!systemType) return [];
+    return systemType.split(',').map(s => s.trim()).filter(Boolean);
+  };
+
+  // Helper to format system types for storage
+  const formatSystemTypes = (systems: string[]): string | null => {
+    if (systems.length === 0) return null;
+    return systems.join(',');
+  };
+
+  // Helper to normalize phone number format for display (strips tel: prefix)
+  const normalizePhoneForDisplay = (lineUri: string | null): string => {
+    if (!lineUri) return '';
+    return lineUri.replace(/^tel:/, '');
+  };
+
+  // Helper to normalize phone number format for storage (adds tel: prefix if missing)
+  const normalizePhoneForStorage = (phoneNumber: string): string => {
+    if (!phoneNumber) return '';
+    const trimmed = phoneNumber.trim();
+    if (trimmed.startsWith('tel:')) return trimmed;
+    return `tel:${trimmed}`;
+  };
 
   // Fetch available countries for the tenant
   const { data: availableCountries } = useQuery<CountryCode[]>({
@@ -121,6 +161,8 @@ export default function NumberManagement() {
       setTypeFilter("all");
       setCountryFilter("all");
       setShowStats(false);
+      // Automatically trigger Teams sync when tenant is selected
+      setIsSyncDialogOpen(true);
     }
   }, [selectedTenant?.id]);
 
@@ -148,7 +190,7 @@ export default function NumberManagement() {
   useEffect(() => {
     if (selectedNumber && isEditDialogOpen) {
       setFormData({
-        lineUri: selectedNumber.lineUri,
+        lineUri: normalizePhoneForDisplay(selectedNumber.lineUri),
         displayName: selectedNumber.displayName || "",
         userPrincipalName: selectedNumber.userPrincipalName || "",
         carrier: selectedNumber.carrier || "",
@@ -382,7 +424,7 @@ export default function NumberManagement() {
 
     createNumberMutation.mutate({
       tenantId: selectedTenant.id,
-      lineUri: formData.lineUri,
+      lineUri: normalizePhoneForStorage(formData.lineUri),
       displayName: formData.displayName || null,
       userPrincipalName: formData.userPrincipalName || null,
       carrier: formData.carrier || null,
@@ -417,6 +459,7 @@ export default function NumberManagement() {
       id: selectedNumber.id,
       updates: {
         ...formData,
+        lineUri: normalizePhoneForStorage(formData.lineUri),
         lastModifiedBy: operatorEmail,
       },
     });
@@ -816,11 +859,11 @@ export default function NumberManagement() {
                     </DialogHeader>
                     <div className="grid grid-cols-2 gap-4 py-4">
                       <div className="space-y-2 col-span-2">
-                        <Label htmlFor="lineUri">Line URI *</Label>
+                        <Label htmlFor="lineUri">Phone Number *</Label>
                         <div className="flex gap-2">
                           <Input
                             id="lineUri"
-                            placeholder="tel:+15551234567"
+                            placeholder="+15551234567"
                             value={formData.lineUri}
                             onChange={(e) => setFormData({ ...formData, lineUri: e.target.value })}
                             className="flex-1"
@@ -845,7 +888,7 @@ export default function NumberManagement() {
                           </Button>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          Enter a number range pattern below (e.g., +1555123xxxx) then click "Find Next" to auto-fill
+                          Enter number in E.164 format (e.g., +15551234567). Enter a number range pattern below then click "Find Next" to auto-fill.
                         </p>
                       </div>
                       <div className="space-y-2">
@@ -938,6 +981,55 @@ export default function NumberManagement() {
                             <SelectItem value="aging">Aging</SelectItem>
                           </SelectContent>
                         </Select>
+                      </div>
+                      <div className="space-y-2 col-span-2">
+                        <Label>Phone Systems</Label>
+                        <div className="flex gap-4 p-3 border rounded-lg">
+                          <div className="flex items-center space-x-2">
+                            <Checkbox
+                              id="add-system-teams"
+                              checked={parseSystemTypes(formData.externalSystemType).includes('teams')}
+                              onCheckedChange={(checked) => {
+                                const current = parseSystemTypes(formData.externalSystemType);
+                                const updated = checked
+                                  ? [...current, 'teams']
+                                  : current.filter(s => s !== 'teams');
+                                setFormData({ ...formData, externalSystemType: formatSystemTypes(updated) });
+                              }}
+                            />
+                            <Label htmlFor="add-system-teams" className="font-normal cursor-pointer">
+                              Teams
+                            </Label>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <Checkbox
+                              id="add-system-3cx"
+                              checked={parseSystemTypes(formData.externalSystemType).includes('3cx')}
+                              onCheckedChange={(checked) => {
+                                const current = parseSystemTypes(formData.externalSystemType);
+                                const updated = checked
+                                  ? [...current, '3cx']
+                                  : current.filter(s => s !== '3cx');
+                                setFormData({ ...formData, externalSystemType: formatSystemTypes(updated) });
+                              }}
+                            />
+                            <Label htmlFor="add-system-3cx" className="font-normal cursor-pointer">
+                              3CX
+                            </Label>
+                          </div>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Select the phone systems this number is associated with
+                        </p>
+                      </div>
+                      <div className="space-y-2 col-span-2">
+                        <Label htmlFor="externalSystemId">System ID</Label>
+                        <Input
+                          id="externalSystemId"
+                          placeholder="External system identifier"
+                          value={formData.externalSystemId || ""}
+                          onChange={(e) => setFormData({ ...formData, externalSystemId: e.target.value || null })}
+                        />
                       </div>
                       <div className="space-y-2 col-span-2">
                         <Label htmlFor="tags">Tags</Label>
@@ -1160,11 +1252,12 @@ export default function NumberManagement() {
                             onCheckedChange={toggleAllNumbers}
                           />
                         </TableHead>
-                        <TableHead>Line URI</TableHead>
+                        <TableHead>Phone Number</TableHead>
                         <TableHead>Display Name</TableHead>
                         <TableHead>UPN</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Type</TableHead>
+                        <TableHead>System</TableHead>
                         <TableHead>Carrier</TableHead>
                         <TableHead>Location</TableHead>
                         <TableHead>Actions</TableHead>
@@ -1179,7 +1272,7 @@ export default function NumberManagement() {
                               onCheckedChange={() => toggleNumberSelection(number.id)}
                             />
                           </TableCell>
-                          <TableCell className="font-mono text-sm">{number.lineUri}</TableCell>
+                          <TableCell className="font-mono text-sm">{normalizePhoneForDisplay(number.lineUri)}</TableCell>
                           <TableCell>{number.displayName || "-"}</TableCell>
                           <TableCell className="text-sm">{number.userPrincipalName || "-"}</TableCell>
                           <TableCell>
@@ -1189,6 +1282,23 @@ export default function NumberManagement() {
                           </TableCell>
                           <TableCell>
                             <Badge variant="outline">{number.numberType}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            {number.externalSystemType ? (
+                              <div className="flex gap-1">
+                                {parseSystemTypes(number.externalSystemType).map((system) => (
+                                  <Badge
+                                    key={system}
+                                    variant={system === 'teams' ? 'default' : 'secondary'}
+                                    className="uppercase"
+                                  >
+                                    {system}
+                                  </Badge>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
                           </TableCell>
                           <TableCell>{number.carrier || "-"}</TableCell>
                           <TableCell>{number.location || "-"}</TableCell>
@@ -1300,10 +1410,10 @@ export default function NumberManagement() {
           </DialogHeader>
           <div className="grid grid-cols-2 gap-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="edit-lineUri">Line URI *</Label>
+              <Label htmlFor="edit-lineUri">Phone Number *</Label>
               <Input
                 id="edit-lineUri"
-                placeholder="tel:+15551234567"
+                placeholder="+15551234567"
                 value={formData.lineUri}
                 onChange={(e) => setFormData({ ...formData, lineUri: e.target.value })}
               />
@@ -1398,6 +1508,55 @@ export default function NumberManagement() {
                   <SelectItem value="aging">Aging</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2 col-span-2">
+              <Label>Phone Systems</Label>
+              <div className="flex gap-4 p-3 border rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="edit-system-teams"
+                    checked={parseSystemTypes(formData.externalSystemType).includes('teams')}
+                    onCheckedChange={(checked) => {
+                      const current = parseSystemTypes(formData.externalSystemType);
+                      const updated = checked
+                        ? [...current, 'teams']
+                        : current.filter(s => s !== 'teams');
+                      setFormData({ ...formData, externalSystemType: formatSystemTypes(updated) });
+                    }}
+                  />
+                  <Label htmlFor="edit-system-teams" className="font-normal cursor-pointer">
+                    Teams
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="edit-system-3cx"
+                    checked={parseSystemTypes(formData.externalSystemType).includes('3cx')}
+                    onCheckedChange={(checked) => {
+                      const current = parseSystemTypes(formData.externalSystemType);
+                      const updated = checked
+                        ? [...current, '3cx']
+                        : current.filter(s => s !== '3cx');
+                      setFormData({ ...formData, externalSystemType: formatSystemTypes(updated) });
+                    }}
+                  />
+                  <Label htmlFor="edit-system-3cx" className="font-normal cursor-pointer">
+                    3CX
+                  </Label>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Select the phone systems this number is associated with
+              </p>
+            </div>
+            <div className="space-y-2 col-span-2">
+              <Label htmlFor="edit-externalSystemId">System ID</Label>
+              <Input
+                id="edit-externalSystemId"
+                placeholder="External system identifier"
+                value={formData.externalSystemId || ""}
+                onChange={(e) => setFormData({ ...formData, externalSystemId: e.target.value || null })}
+              />
             </div>
             <div className="space-y-2 col-span-2">
               <Label htmlFor="edit-tags">Tags</Label>
@@ -1646,6 +1805,7 @@ export default function NumberManagement() {
           open={isSyncDialogOpen}
           onOpenChange={setIsSyncDialogOpen}
           tenant={selectedTenant}
+          autoSync={true}
           onSyncComplete={() => {
             queryClient.invalidateQueries({ queryKey: ["/api/numbers", selectedTenant.id] });
           }}

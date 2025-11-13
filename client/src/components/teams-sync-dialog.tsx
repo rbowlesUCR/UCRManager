@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -15,9 +15,10 @@ interface TeamsSyncDialogProps {
   onOpenChange: (open: boolean) => void;
   tenant: CustomerTenant;
   onSyncComplete: () => void;
+  autoSync?: boolean;  // New prop to trigger automatic sync
 }
 
-export function TeamsSyncDialog({ open, onOpenChange, tenant, onSyncComplete }: TeamsSyncDialogProps) {
+export function TeamsSyncDialog({ open, onOpenChange, tenant, onSyncComplete, autoSync = false }: TeamsSyncDialogProps) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
@@ -118,8 +119,33 @@ export function TeamsSyncDialog({ open, onOpenChange, tenant, onSyncComplete }: 
     }
   };
 
+  // Auto-sync when dialog opens if autoSync prop is true
+  useEffect(() => {
+    if (open && autoSync && !syncData && !isLoading) {
+      console.log("[TeamsSyncDialog] Auto-syncing for tenant:", tenant.id);
+      handleSync();
+    }
+  }, [open, autoSync]);
+
+  // Reset state when dialog closes
+  useEffect(() => {
+    if (!open) {
+      setSyncData(null);
+      setSelectedToAdd(new Set());
+      setSelectedToUpdate(new Set());
+    }
+  }, [open]);
+
+  const handleOpenChange = (newOpen: boolean) => {
+    // Prevent closing while syncing or applying
+    if (!newOpen && (isLoading || isApplying)) {
+      return;
+    }
+    onOpenChange(newOpen);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -133,23 +159,25 @@ export function TeamsSyncDialog({ open, onOpenChange, tenant, onSyncComplete }: 
 
         {!syncData ? (
           <div className="flex flex-col items-center justify-center py-12 gap-4">
-            <RefreshCw className="w-12 h-12 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">
-              Click "Start Sync" to fetch phone numbers from Teams
-            </p>
-            <Button onClick={handleSync} disabled={isLoading}>
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Syncing...
-                </>
-              ) : (
-                <>
+            {isLoading ? (
+              <>
+                <Loader2 className="w-12 h-12 text-primary animate-spin" />
+                <p className="text-sm text-muted-foreground">
+                  Syncing phone numbers from Teams...
+                </p>
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-12 h-12 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">
+                  Click "Start Sync" to fetch phone numbers from Teams
+                </p>
+                <Button onClick={handleSync}>
                   <RefreshCw className="w-4 h-4 mr-2" />
                   Start Sync
-                </>
-              )}
-            </Button>
+                </Button>
+              </>
+            )}
           </div>
         ) : (
           <>
@@ -331,7 +359,7 @@ export function TeamsSyncDialog({ open, onOpenChange, tenant, onSyncComplete }: 
         )}
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={() => handleOpenChange(false)} disabled={isLoading || isApplying}>
             Cancel
           </Button>
           {syncData && (

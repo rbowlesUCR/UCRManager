@@ -167,6 +167,20 @@ export const featureFlags = pgTable("feature_flags", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// 3CX credentials table - stores credentials for 3CX phone system integration per tenant
+export const tenant3CXCredentials = pgTable("tenant_3cx_credentials", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  tenantId: varchar("tenant_id").notNull().references(() => customerTenants.id, { onDelete: "cascade" }),
+  serverUrl: text("server_url").notNull(), // 3CX server URL (e.g., "https://3cx.example.com:5001")
+  username: text("username").notNull(), // Numeric username for 3CX authentication
+  encryptedPassword: text("encrypted_password").notNull(), // Encrypted password
+  mfaEnabled: boolean("mfa_enabled").default(false).notNull(), // Whether MFA is enabled for this server
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdBy: text("created_by").notNull(), // Email of the operator who created the credentials
+  lastModifiedBy: text("last_modified_by").notNull(), // Email of the operator who last modified
+});
+
 // Insert schemas
 export const insertAdminUserSchema = createInsertSchema(adminUsers).omit({
   id: true,
@@ -224,6 +238,12 @@ export const insertFeatureFlagSchema = createInsertSchema(featureFlags).omit({
   updatedAt: true,
 });
 
+export const insertTenant3CXCredentialsSchema = createInsertSchema(tenant3CXCredentials).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type AdminUser = typeof adminUsers.$inferSelect;
 export type InsertAdminUser = z.infer<typeof insertAdminUserSchema>;
@@ -251,6 +271,9 @@ export type InsertPhoneNumberInventory = z.infer<typeof insertPhoneNumberInvento
 
 export type CountryCode = typeof countryCodes.$inferSelect;
 export type InsertCountryCode = z.infer<typeof insertCountryCodeSchema>;
+
+export type Tenant3CXCredentials = typeof tenant3CXCredentials.$inferSelect;
+export type InsertTenant3CXCredentials = z.infer<typeof insertTenant3CXCredentialsSchema>;
 
 export type FeatureFlag = typeof featureFlags.$inferSelect;
 export type InsertFeatureFlag = z.infer<typeof insertFeatureFlagSchema>;

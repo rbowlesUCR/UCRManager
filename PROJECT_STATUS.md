@@ -1,7 +1,7 @@
 # UCR Manager - Phone Number Inventory System - Current Status
 
-**Last Updated**: 2025-11-11 @ 07:30 AM UTC
-**Build Status**: ✅ Deployed and Running on Port 443 (HTTPS) - All Policy Types Global Assignment Fixed
+**Last Updated**: 2025-11-13 @ 02:30 AM UTC
+**Build Status**: ✅ Deployed and Running on Port 443 (HTTPS) - Auto-Sync & Phone Number UX Improvements
 
 ---
 
@@ -196,6 +196,90 @@ Phone Number Inventory Management System with Microsoft Teams synchronization ca
 - `server/powershell-session.ts` - Session-based voice routing policy assignment
 
 **Result**: All 10 policy types now correctly handle Global policy assignment using `$null`, and Teams Telephony Administrator permissions are sufficient for all voice-related operations.
+
+### Issue 8: Teams Badge Not Showing on Imported Numbers ✅ FIXED
+**Problem**: When syncing numbers from Teams, the imported numbers didn't show the Teams badge in the Number Management table
+**Root Cause**: The `/api/numbers/apply-sync` endpoint was missing the `externalSystemType` field when creating or updating numbers from Teams sync
+**Fix Applied**:
+- **Backend Changes**: Modified `apply-sync` endpoint in `server/routes.ts` (lines 1685-1718)
+  - Added `externalSystemType: 'teams'` to both add and update operations
+  - Added `externalSystemId: null` for consistency
+- **Result**: All Teams numbers now correctly display blue "TEAMS" badge
+- **Also Fixed**: Existing numbers in database updated via SQL: `UPDATE phone_number_inventory SET external_system_type = 'teams' WHERE user_principal_name IS NOT NULL`
+**Files Modified**:
+- `server/routes.ts` - Added system type tracking to Teams sync apply operation
+**Result**: Teams numbers are now properly tagged and display the correct badge in the UI
+
+### Issue 9: Phone Number Entry UX - "tel:" Prefix Requirement ✅ IMPROVED
+**Problem**: Users had to manually enter "tel:+15551234567" which was confusing and error-prone
+**Requirements**:
+- Users should enter numbers in clean E.164 format: `+15551234567`
+- Backend/PowerShell still needs `tel:` prefix for proper operation
+- Display should show clean format without `tel:` prefix
+**Changes Applied**:
+- **Number Management Page** (`client/src/pages/number-management.tsx`):
+  - Added helper functions: `normalizePhoneForDisplay()` strips "tel:", `normalizePhoneForStorage()` adds "tel:"
+  - Updated form labels from "Line URI" to "Phone Number" for clarity
+  - Changed placeholders from `tel:+15551234567` to `+15551234567`
+  - Table column displays numbers without "tel:" prefix
+  - Automatic conversion when saving (add) or updating (edit)
+- **Dashboard/Voice Configuration** (`client/src/pages/dashboard.tsx`):
+  - Updated validation to accept numbers with or without "tel:" prefix
+  - Changed placeholder from `tel:+15551234567` to `+15551234567`
+  - Auto-strips "tel:" when loading existing user phone numbers
+  - Auto-adds "tel:" before sending to PowerShell backend
+  - Updated validation messages to reflect new format
+**Files Modified**:
+- `client/src/pages/number-management.tsx` - Form inputs, display, and storage normalization
+- `client/src/pages/dashboard.tsx` - Validation, display, and backend formatting
+**Result**: Users work with clean `+15551234567` format throughout the UI, while backend operations use proper `tel:+15551234567` format
+
+### Issue 10: Manual Sync Required After Number Operations ✅ AUTOMATED
+**Problem**: After assigning or removing phone numbers via Voice Configuration, users had to manually sync from Teams to see updated inventory
+**Requirements**:
+- Automatic sync after successful voice assignment
+- Automatic sync after phone number removal
+- Silent background operation without disrupting user workflow
+- Update Number Management inventory in real-time
+**Changes Applied**:
+- **Voice Assignment Auto-Sync** (`client/src/pages/dashboard.tsx` lines 196-262):
+  - After successful assignment, automatically triggers Teams sync
+  - Fetches sync data from Teams
+  - Auto-applies all changes (add + update)
+  - Shows toast: "Number inventory updated: Synced X phone numbers from Teams"
+  - Invalidates queries to refresh Number Management page
+  - Silent failure for background sync errors
+- **Phone Removal Auto-Sync** (`client/src/pages/dashboard.tsx` lines 273-322):
+  - After successful removal, automatically triggers Teams sync
+  - Auto-applies all detected changes
+  - Updates Number Management inventory
+  - No separate toast (covered by removal success message)
+**Files Modified**:
+- `client/src/pages/dashboard.tsx` - Added auto-sync logic to `assignVoiceMutation` and `removeAssignmentMutation` onSuccess handlers
+**Result**: Number Management inventory stays synchronized with Teams automatically, no manual sync needed
+
+### Issue 11: Manual Sync Required on Tenant Selection ✅ AUTOMATED
+**Problem**: When selecting a tenant in Number Management, users had to manually click "Sync from Teams" button
+**Requirements**:
+- Automatic sync dialog appearance when tenant is selected
+- Automatic sync initiation without button click
+- Show sync progress with loading state
+- Display results for user review and selection
+**Changes Applied**:
+- **Teams Sync Dialog Enhancement** (`client/src/components/teams-sync-dialog.tsx`):
+  - Added `autoSync` prop to trigger automatic sync
+  - Added useEffect to auto-start sync when dialog opens with `autoSync={true}`
+  - Updated loading state to show spinner with "Syncing phone numbers from Teams..." message
+  - Dialog can't be closed while syncing or applying changes
+  - Reset state when dialog closes
+- **Number Management Integration** (`client/src/pages/number-management.tsx`):
+  - Added logic to open sync dialog when tenant is selected
+  - Passes `autoSync={true}` prop to TeamsSyncDialog component
+  - Dialog shows loading state immediately, then displays results
+**Files Modified**:
+- `client/src/components/teams-sync-dialog.tsx` - Auto-sync functionality and loading states
+- `client/src/pages/number-management.tsx` - Trigger dialog on tenant selection
+**Result**: Seamless workflow - select tenant, sync starts automatically, review changes, apply. No manual "Sync from Teams" button click needed.
 
 ---
 

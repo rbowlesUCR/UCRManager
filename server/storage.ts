@@ -7,6 +7,7 @@ import {
   operatorConfig,
   operatorUsers,
   tenantPowershellCredentials,
+  tenant3CXCredentials,
   phoneNumberInventory,
   countryCodes,
   featureFlags,
@@ -24,6 +25,8 @@ import {
   type InsertOperatorUser,
   type TenantPowershellCredentials,
   type InsertTenantPowershellCredentials,
+  type Tenant3CXCredentials,
+  type InsertTenant3CXCredentials,
   type PhoneNumberInventory,
   type InsertPhoneNumberInventory,
   type CountryCode,
@@ -81,6 +84,12 @@ export interface IStorage {
   createTenantPowershellCredentials(credentials: InsertTenantPowershellCredentials): Promise<TenantPowershellCredentials>;
   updateTenantPowershellCredentials(id: string, updates: Partial<InsertTenantPowershellCredentials>): Promise<TenantPowershellCredentials>;
   deleteTenantPowershellCredentials(id: string): Promise<boolean>;
+
+  // Tenant 3CX credentials (per-tenant, one set of credentials per tenant)
+  getTenant3CXCredentials(tenantId: string): Promise<Tenant3CXCredentials | undefined>;
+  createTenant3CXCredentials(credentials: InsertTenant3CXCredentials): Promise<Tenant3CXCredentials>;
+  updateTenant3CXCredentials(id: string, updates: Partial<InsertTenant3CXCredentials>): Promise<Tenant3CXCredentials>;
+  deleteTenant3CXCredentials(id: string): Promise<boolean>;
 
   // Feature flags
   getAllFeatureFlags(): Promise<FeatureFlag[]>;
@@ -330,6 +339,45 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .delete(tenantPowershellCredentials)
       .where(eq(tenantPowershellCredentials.id, id))
+      .returning();
+    return result.length > 0;
+  }
+
+  // Tenant 3CX credentials
+  // Get 3CX credentials for a tenant (only one set per tenant)
+  async getTenant3CXCredentials(tenantId: string): Promise<Tenant3CXCredentials | undefined> {
+    const [credentials] = await db
+      .select()
+      .from(tenant3CXCredentials)
+      .where(eq(tenant3CXCredentials.tenantId, tenantId))
+      .limit(1);
+    return credentials || undefined;
+  }
+
+  // Create new 3CX credentials
+  async createTenant3CXCredentials(insertCredentials: InsertTenant3CXCredentials): Promise<Tenant3CXCredentials> {
+    const [created] = await db
+      .insert(tenant3CXCredentials)
+      .values(insertCredentials)
+      .returning();
+    return created;
+  }
+
+  // Update 3CX credentials
+  async updateTenant3CXCredentials(id: string, updates: Partial<InsertTenant3CXCredentials>): Promise<Tenant3CXCredentials> {
+    const [updated] = await db
+      .update(tenant3CXCredentials)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(tenant3CXCredentials.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Delete 3CX credentials by ID
+  async deleteTenant3CXCredentials(id: string): Promise<boolean> {
+    const result = await db
+      .delete(tenant3CXCredentials)
+      .where(eq(tenant3CXCredentials.id, id))
       .returning();
     return result.length > 0;
   }

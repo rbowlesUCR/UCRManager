@@ -134,8 +134,12 @@ export default function Dashboard() {
       // Populate phone number if user has one assigned
       if (userVoiceConfig.lineUri) {
         console.log(`[Dashboard] Auto-populating phone number: ${userVoiceConfig.lineUri}`);
-        setPhoneNumber(userVoiceConfig.lineUri);
-        setPhoneValidation(validatePhoneNumber(userVoiceConfig.lineUri));
+        // Strip tel: prefix for display
+        const displayNumber = userVoiceConfig.lineUri.startsWith("tel:")
+          ? userVoiceConfig.lineUri.substring(4)
+          : userVoiceConfig.lineUri;
+        setPhoneNumber(displayNumber);
+        setPhoneValidation(validatePhoneNumber(displayNumber));
       } else {
         setPhoneNumber("");
         setPhoneValidation(null);
@@ -198,11 +202,51 @@ export default function Dashboard() {
     }) => {
       return await apiRequest("POST", "/api/teams/assign-voice", data);
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast({
         title: "Voice configuration saved",
         description: "Phone number and routing policy have been assigned successfully",
       });
+
+      // Automatically sync numbers from Teams to update inventory
+      if (selectedTenant) {
+        try {
+          console.log("[Dashboard] Auto-syncing numbers after assignment for tenant:", selectedTenant.id);
+
+          // Fetch sync data
+          const syncResponse = await apiRequest("POST", `/api/numbers/sync-from-teams/${selectedTenant.id}`, {});
+          const syncData = await syncResponse.json();
+
+          // Auto-apply all changes
+          const allChanges = [
+            ...syncData.changes.toAdd,
+            ...syncData.changes.toUpdate.map((c: any) => ({ ...c, action: 'update' })),
+          ];
+
+          if (allChanges.length > 0) {
+            console.log("[Dashboard] Auto-applying", allChanges.length, "changes");
+            const applyResponse = await apiRequest("POST", "/api/numbers/apply-sync", {
+              tenantId: selectedTenant.id,
+              selectedChanges: allChanges,
+            });
+            const result = await applyResponse.json();
+
+            console.log("[Dashboard] Auto-sync complete. Added:", result.added, "Updated:", result.updated);
+
+            // Show subtle notification about sync
+            toast({
+              title: "Number inventory updated",
+              description: `Synced ${result.added + result.updated} phone numbers from Teams`,
+            });
+          } else {
+            console.log("[Dashboard] No changes to sync");
+          }
+        } catch (error: any) {
+          console.error("[Dashboard] Auto-sync error:", error);
+          // Don't show error toast - silent failure for background sync
+        }
+      }
+
       // Reset form
       setSelectedUser(null);
       setPhoneNumber("");
@@ -213,6 +257,8 @@ export default function Dashboard() {
       if (selectedUser) {
         queryClient.invalidateQueries({ queryKey: ["/api/teams/user-voice-config", selectedTenant?.id, selectedUser.userPrincipalName] });
       }
+      // Also invalidate number inventory queries so Number Management updates
+      queryClient.invalidateQueries({ queryKey: ["/api/numbers", selectedTenant?.id] });
     },
     onError: (error: Error) => {
       toast({
@@ -234,15 +280,45 @@ export default function Dashboard() {
       });
       return await response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       toast({
         title: "Phone number removed",
         description: data.message || "The phone number assignment has been removed from Teams",
       });
+
+      // Automatically sync numbers from Teams to update inventory
+      if (selectedTenant) {
+        try {
+          console.log("[Dashboard] Auto-syncing numbers after removal for tenant:", selectedTenant.id);
+
+          // Fetch sync data
+          const syncResponse = await apiRequest("POST", `/api/numbers/sync-from-teams/${selectedTenant.id}`, {});
+          const syncData = await syncResponse.json();
+
+          // Auto-apply all changes
+          const allChanges = [
+            ...syncData.changes.toAdd,
+            ...syncData.changes.toUpdate.map((c: any) => ({ ...c, action: 'update' })),
+          ];
+
+          if (allChanges.length > 0) {
+            console.log("[Dashboard] Auto-applying", allChanges.length, "changes after removal");
+            await apiRequest("POST", "/api/numbers/apply-sync", {
+              tenantId: selectedTenant.id,
+              selectedChanges: allChanges,
+            });
+          }
+        } catch (error: any) {
+          console.error("[Dashboard] Auto-sync error after removal:", error);
+        }
+      }
+
       queryClient.invalidateQueries({ queryKey: ["/api/teams/users", selectedTenant?.id] });
       if (selectedUser) {
         queryClient.invalidateQueries({ queryKey: ["/api/teams/user-voice-config", selectedTenant?.id, selectedUser.userPrincipalName] });
       }
+      // Also invalidate number inventory queries so Number Management updates
+      queryClient.invalidateQueries({ queryKey: ["/api/numbers", selectedTenant?.id] });
     },
     onError: (error: Error) => {
       toast({
@@ -281,23 +357,18 @@ export default function Dashboard() {
     },
   });
 
-  // Validate phone number format (tel: URI with E.164)
+  // Validate phone number format (E.164 format: +1234567890)
   const validatePhoneNumber = (number: string): { isValid: boolean; message: string } => {
     if (!number) {
       return { isValid: false, message: "" };
     }
 
-    // Check if it starts with tel:
-    if (!number.startsWith("tel:")) {
-      return { isValid: false, message: "Must start with 'tel:'" };
-    }
-
-    // Extract the number part after tel:
-    const numberPart = number.substring(4);
+    // Strip tel: prefix if present (for backwards compatibility)
+    const numberPart = number.startsWith("tel:") ? number.substring(4) : number;
 
     // Check if it starts with +
     if (!numberPart.startsWith("+")) {
-      return { isValid: false, message: "Number must start with + after tel:" };
+      return { isValid: false, message: "Number must start with +" };
     }
 
     // Check if the rest contains only digits (E.164 allows 1-15 digits after +)
@@ -345,10 +416,13 @@ export default function Dashboard() {
       return;
     }
 
+    // Ensure phone number has tel: prefix for PowerShell
+    const normalizedPhoneNumber = phoneNumber.startsWith("tel:") ? phoneNumber : `tel:${phoneNumber}`;
+
     assignVoiceMutation.mutate({
       tenantId: selectedTenant.id,
       userId: selectedUser.id,
-      phoneNumber,
+      phoneNumber: normalizedPhoneNumber,
       routingPolicy: selectedPolicy,
     });
   };
@@ -623,7 +697,7 @@ export default function Dashboard() {
                 <Input
                   id="phone-number"
                   type="text"
-                  placeholder="tel:+15551234567"
+                  placeholder="+15551234567"
                   value={phoneNumber}
                   onChange={(e) => handlePhoneNumberChange(e.target.value)}
                   className={`h-11 flex-1 ${

@@ -14,8 +14,10 @@ import {
   invalidateMsalClientCache,
 } from "./auth";
 import { getGraphClient, getTeamsVoiceUsers, getVoiceRoutingPolicies, assignPhoneNumberAndPolicy, validateTenantPermissions } from "./graph";
-import { insertCustomerTenantSchema, insertAuditLogSchema, insertConfigurationProfileSchema, insertTenantPowershellCredentialsSchema, insertPhoneNumberInventorySchema, type InsertOperatorConfig, type InsertCustomerTenant } from "@shared/schema";
+import { insertCustomerTenantSchema, insertAuditLogSchema, insertConfigurationProfileSchema, insertTenantPowershellCredentialsSchema, insertPhoneNumberInventorySchema, phoneNumberInventory, type InsertOperatorConfig, type InsertCustomerTenant } from "@shared/schema";
 import { encrypt, decrypt } from "./encryption";
+import { db } from "./db";
+import { eq, and } from "drizzle-orm";
 import {
   testPowerShellConnectivity,
   testTeamsModuleInstallation,
@@ -1688,6 +1690,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               onlineVoiceRoutingPolicy: change.onlineVoiceRoutingPolicy || null,
               numberType: change.numberType || "did",
               status: hasUser ? "used" : "available",
+              externalSystemType: 'teams',
+              externalSystemId: null,
               createdBy: operatorEmail,
               lastModifiedBy: operatorEmail,
             });
@@ -1707,6 +1711,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               userPrincipalName: change.teams.userPrincipalName || null,
               onlineVoiceRoutingPolicy: change.teams.onlineVoiceRoutingPolicy || null,
               status: status,
+              externalSystemType: 'teams',
+              externalSystemId: null,
               lastModifiedBy: operatorEmail,
             });
             results.updated++;
@@ -3480,6 +3486,685 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting PowerShell credentials:", error);
       res.status(500).json({ error: "Failed to delete PowerShell credentials" });
+    }
+  });
+
+  // ===== 3CX CREDENTIALS API =====
+
+  // Get 3CX credentials for a tenant
+  app.get("/api/admin/tenant/:tenantId/3cx-credentials", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const credentials = await storage.getTenant3CXCredentials(tenantId);
+
+      if (!credentials) {
+        return res.status(404).json({ error: "No 3CX credentials found for this tenant" });
+      }
+
+      // Remove encrypted password from response for security
+      const sanitized = {
+        id: credentials.id,
+        tenantId: credentials.tenantId,
+        serverUrl: credentials.serverUrl,
+        username: credentials.username,
+        mfaEnabled: credentials.mfaEnabled,
+        createdAt: credentials.createdAt,
+        updatedAt: credentials.updatedAt,
+        createdBy: credentials.createdBy,
+        lastModifiedBy: credentials.lastModifiedBy,
+      };
+
+      res.json(sanitized);
+    } catch (error) {
+      console.error("Error fetching 3CX credentials:", error);
+      res.status(500).json({ error: "Failed to fetch 3CX credentials" });
+    }
+  });
+
+  // Create or update 3CX credentials for a tenant (upsert pattern)
+  app.post("/api/admin/tenant/:tenantId/3cx-credentials", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { serverUrl, username, password, mfaEnabled } = req.body;
+      const operatorName = (req as any).adminUser?.username || "system";
+
+      // Validate required fields
+      if (!serverUrl || !username || !password) {
+        return res.status(400).json({
+          error: "serverUrl, username, and password are required"
+        });
+      }
+
+      // Check if credentials already exist for this tenant
+      const existing = await storage.getTenant3CXCredentials(tenantId);
+
+      if (existing) {
+        // Update existing credentials
+        const updates: any = {
+          serverUrl,
+          username,
+          encryptedPassword: encrypt(password),
+          mfaEnabled: mfaEnabled || false,
+          lastModifiedBy: operatorName,
+        };
+
+        const updated = await storage.updateTenant3CXCredentials(existing.id, updates);
+
+        // Clear cached token since credentials changed
+        threeCXTokenCache.delete(tenantId);
+        console.log(`[3CX API] Cleared cached token for tenant ${tenantId} (credentials updated)`);
+
+        res.json({
+          id: updated.id,
+          tenantId: updated.tenantId,
+          serverUrl: updated.serverUrl,
+          username: updated.username,
+          mfaEnabled: updated.mfaEnabled,
+          updatedAt: updated.updatedAt,
+        });
+      } else {
+        // Create new credentials
+        const credentialData = {
+          tenantId,
+          serverUrl,
+          username,
+          encryptedPassword: encrypt(password),
+          mfaEnabled: mfaEnabled || false,
+          createdBy: operatorName,
+          lastModifiedBy: operatorName,
+        };
+
+        const credential = await storage.createTenant3CXCredentials(credentialData);
+
+        res.json({
+          id: credential.id,
+          tenantId: credential.tenantId,
+          serverUrl: credential.serverUrl,
+          username: credential.username,
+          mfaEnabled: credential.mfaEnabled,
+          createdAt: credential.createdAt,
+        });
+      }
+    } catch (error) {
+      console.error("Error saving 3CX credentials:", error);
+      res.status(500).json({ error: "Failed to save 3CX credentials" });
+    }
+  });
+
+  // Test 3CX connection
+  app.post("/api/admin/tenant/:tenantId/3cx-credentials/test", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { mfaCode } = req.body;
+
+      // Get credentials for this tenant
+      const credentials = await storage.getTenant3CXCredentials(tenantId);
+      if (!credentials) {
+        return res.status(404).json({ error: "No 3CX credentials found for this tenant" });
+      }
+
+      // Decrypt password
+      const password = decrypt(credentials.encryptedPassword);
+
+      // Test connection to 3CX server using their Configuration API
+      console.log(`[3CX Auth] Authenticating to ${credentials.serverUrl} for tenant ${tenantId}`);
+      console.log(`[3CX Auth] Username: ${credentials.username}, MFA Enabled: ${credentials.mfaEnabled}`);
+      if (mfaCode) {
+        console.log(`[3CX Auth] MFA Code provided: ${mfaCode.substring(0, 2)}***`);
+      }
+
+      try {
+        // Validate server URL
+        const serverUrl = credentials.serverUrl.replace(/\/$/, ''); // Remove trailing slash
+        new URL(serverUrl); // Validate URL format
+
+        // Prepare authentication request
+        // 3CX Configuration API uses /webclient/api/Login/GetAccessToken
+        const loginUrl = `${serverUrl}/webclient/api/Login/GetAccessToken`;
+        const authPayload = {
+          Username: credentials.username,
+          SecurityCode: mfaCode || '', // MFA code or empty string
+          Password: password
+        };
+
+        console.log(`[3CX Auth] Calling authentication endpoint: ${loginUrl}`);
+
+        // Attempt authentication
+        const authResponse = await fetch(loginUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(authPayload),
+          signal: AbortSignal.timeout(10000), // 10 second timeout
+        });
+
+        console.log(`[3CX Auth] Response status: ${authResponse.status}`);
+
+        if (!authResponse.ok) {
+          const errorText = await authResponse.text();
+          console.error(`[3CX Auth] Authentication failed: ${errorText}`);
+
+          // Handle specific error cases
+          if (authResponse.status === 401) {
+            throw new Error("Authentication failed: Invalid username or password");
+          } else if (authResponse.status === 403) {
+            throw new Error("Authentication failed: Access forbidden. Please check credentials.");
+          } else if (authResponse.status === 404) {
+            throw new Error("3CX server endpoint not found. Please verify the server URL is correct.");
+          } else {
+            throw new Error(`Authentication failed with status ${authResponse.status}: ${errorText}`);
+          }
+        }
+
+        // Parse response
+        const authData = await authResponse.json();
+        console.log(`[3CX Auth] Authentication successful`);
+
+        // 3CX returns: { Token: { access_token: "..." } }
+        if (!authData.Token || !authData.Token.access_token) {
+          throw new Error("Invalid response from 3CX server - missing access token");
+        }
+
+        const accessToken = authData.Token.access_token;
+        console.log(`[3CX Auth] Access token received (length: ${accessToken.length})`);
+
+        // Test the token by making a simple API call (e.g., get system info)
+        const testUrl = `${serverUrl}/xapi/v1/SystemStatus`;
+        console.log(`[3CX Auth] Testing token with API call: ${testUrl}`);
+
+        const testResponse = await fetch(testUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (testResponse.ok) {
+          const systemInfo = await testResponse.json();
+          console.log(`[3CX Auth] API test successful - System version: ${systemInfo.Version || 'unknown'}`);
+
+          res.json({
+            success: true,
+            message: "Successfully authenticated to 3CX server",
+            details: {
+              serverUrl: credentials.serverUrl,
+              authenticated: true,
+              mfaUsed: !!mfaCode,
+              systemVersion: systemInfo.Version || 'N/A',
+              tokenReceived: true
+            }
+          });
+        } else {
+          console.log(`[3CX Auth] API test response status: ${testResponse.status}`);
+          // Authentication worked but API call failed - still consider it successful
+          res.json({
+            success: true,
+            message: "Successfully authenticated to 3CX server",
+            details: {
+              serverUrl: credentials.serverUrl,
+              authenticated: true,
+              mfaUsed: !!mfaCode,
+              tokenReceived: true,
+              note: `Token validated but API test returned status ${testResponse.status}`
+            }
+          });
+        }
+      } catch (error: any) {
+        console.error(`[3CX Auth] Connection test failed:`, error);
+
+        if (error.name === 'AbortError') {
+          throw new Error("Connection timeout - 3CX server did not respond within 10 seconds");
+        }
+
+        throw error;
+      }
+    } catch (error: any) {
+      console.error("Error testing 3CX connection:", error);
+      res.status(500).json({
+        error: error.message || "Failed to test 3CX connection",
+        details: "Please verify the server URL is correct and the server is accessible"
+      });
+    }
+  });
+
+  // Delete 3CX credentials for a tenant
+  app.delete("/api/admin/tenant/:tenantId/3cx-credentials", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+
+      // Get credentials to find the ID
+      const credentials = await storage.getTenant3CXCredentials(tenantId);
+      if (!credentials) {
+        return res.status(404).json({ error: "No 3CX credentials found for this tenant" });
+      }
+
+      await storage.deleteTenant3CXCredentials(credentials.id);
+
+      // Clear cached token since credentials deleted
+      threeCXTokenCache.delete(tenantId);
+      console.log(`[3CX API] Cleared cached token for tenant ${tenantId} (credentials deleted)`);
+
+      res.json({ success: true, message: "3CX credentials deleted" });
+    } catch (error) {
+      console.error("Error deleting 3CX credentials:", error);
+      res.status(500).json({ error: "Failed to delete 3CX credentials" });
+    }
+  });
+
+  // ===== 3CX DATA API ENDPOINTS =====
+
+  // Simple in-memory token cache for 3CX access tokens
+  // Maps tenantId -> { token, serverUrl, expiresAt }
+  const threeCXTokenCache = new Map<string, { token: string; serverUrl: string; expiresAt: number }>();
+
+  // Helper function to authenticate to 3CX and get access token
+  async function get3CXAccessToken(tenantId: string, mfaCode?: string): Promise<{ token: string; serverUrl: string }> {
+    // Check cache first (tokens are valid for 1 hour, we'll cache for 50 minutes to be safe)
+    const cached = threeCXTokenCache.get(tenantId);
+    if (cached && cached.expiresAt > Date.now()) {
+      console.log(`[3CX API] Using cached token for tenant ${tenantId} (expires in ${Math.round((cached.expiresAt - Date.now()) / 1000)}s)`);
+      return { token: cached.token, serverUrl: cached.serverUrl };
+    }
+    const credentials = await storage.getTenant3CXCredentials(tenantId);
+    if (!credentials) {
+      throw new Error("No 3CX credentials found for this tenant");
+    }
+
+    const password = decrypt(credentials.encryptedPassword);
+    const serverUrl = credentials.serverUrl.replace(/\/$/, '');
+    const loginUrl = `${serverUrl}/webclient/api/Login/GetAccessToken`;
+
+    const authPayload = {
+      Username: credentials.username,
+      SecurityCode: mfaCode || '',
+      Password: password
+    };
+
+    console.log(`[3CX API] Authenticating to ${serverUrl} for tenant ${tenantId}`);
+
+    const authResponse = await fetch(loginUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(authPayload),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!authResponse.ok) {
+      const errorText = await authResponse.text();
+      console.error(`[3CX API] Authentication failed: ${errorText}`);
+
+      if (authResponse.status === 401) {
+        throw new Error("Authentication failed: Invalid credentials");
+      } else if (authResponse.status === 403) {
+        throw new Error("Authentication failed: Access forbidden");
+      }
+      throw new Error(`Authentication failed with status ${authResponse.status}`);
+    }
+
+    const authData = await authResponse.json();
+    console.log(`[3CX API] Auth response structure:`, JSON.stringify(authData).substring(0, 200));
+
+    if (!authData.Token || !authData.Token.access_token) {
+      console.error(`[3CX API] Invalid auth response. Full response:`, JSON.stringify(authData));
+
+      // Check if MFA is required but not provided
+      if (credentials.mfaEnabled && !mfaCode) {
+        throw new Error("MFA code required but not provided");
+      }
+
+      throw new Error("Invalid response from 3CX server - missing access token");
+    }
+
+    const accessToken = authData.Token.access_token;
+    console.log(`[3CX API] Authentication successful, token length: ${accessToken.length}`);
+
+    // Cache the token for 50 minutes (3CX tokens are valid for 1 hour)
+    const expiresAt = Date.now() + (50 * 60 * 1000);
+    threeCXTokenCache.set(tenantId, {
+      token: accessToken,
+      serverUrl,
+      expiresAt
+    });
+    console.log(`[3CX API] Token cached for tenant ${tenantId}, expires in 50 minutes`);
+
+    return { token: accessToken, serverUrl };
+  }
+
+  // Get system information
+  app.get("/api/admin/tenant/:tenantId/3cx/system-info", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { mfaCode } = req.query;
+
+      const { token, serverUrl } = await get3CXAccessToken(tenantId, mfaCode as string);
+      const apiUrl = `${serverUrl}/xapi/v1/SystemStatus`;
+
+      console.log(`[3CX API] Fetching system info from ${apiUrl}`);
+
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[3CX API] Failed to fetch system info: ${errorText}`);
+        throw new Error(`Failed to fetch system info: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log(`[3CX API] System info retrieved successfully`);
+      res.json(data);
+    } catch (error: any) {
+      console.error(`[3CX API] Error fetching system info:`, error);
+      res.status(500).json({ error: error.message || "Failed to fetch system information" });
+    }
+  });
+
+  // Get list of users/extensions
+  app.get("/api/admin/tenant/:tenantId/3cx/users", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { mfaCode, filter, select, orderby, count } = req.query;
+
+      const { token, serverUrl } = await get3CXAccessToken(tenantId, mfaCode as string);
+
+      // Build OData query parameters
+      const queryParams = new URLSearchParams();
+      if (filter) queryParams.set('$filter', filter as string);
+      if (select) queryParams.set('$select', select as string);
+      if (orderby) queryParams.set('$orderby', orderby as string);
+      if (count === 'true') queryParams.set('$count', 'true');
+
+      // Default filter to exclude hidden/system extensions
+      if (!filter) {
+        queryParams.set('$filter', "not startsWith(Number,'HD')");
+      }
+
+      // Default select fields
+      if (!select) {
+        queryParams.set('$select', 'Id,Number,FirstName,LastName,DisplayName,EmailAddress,Require2FA');
+      }
+
+      // Default ordering
+      if (!orderby) {
+        queryParams.set('$orderby', 'Number');
+      }
+
+      const apiUrl = `${serverUrl}/xapi/v1/Users?${queryParams.toString()}`;
+      console.log(`[3CX API] Fetching users from ${apiUrl}`);
+
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[3CX API] Failed to fetch users: ${errorText}`);
+        throw new Error(`Failed to fetch users: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log(`[3CX API] Users retrieved successfully. Count: ${data.value?.length || 0}`);
+      res.json(data);
+    } catch (error: any) {
+      console.error(`[3CX API] Error fetching users:`, error);
+      res.status(500).json({ error: error.message || "Failed to fetch users" });
+    }
+  });
+
+  // Get specific user details
+  app.get("/api/admin/tenant/:tenantId/3cx/users/:userId", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId, userId } = req.params;
+      const { mfaCode } = req.query;
+
+      const { token, serverUrl } = await get3CXAccessToken(tenantId, mfaCode as string);
+      const apiUrl = `${serverUrl}/xapi/v1/Users(${userId})`;
+
+      console.log(`[3CX API] Fetching user ${userId} from ${apiUrl}`);
+
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[3CX API] Failed to fetch user: ${errorText}`);
+        throw new Error(`Failed to fetch user: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log(`[3CX API] User ${userId} retrieved successfully`);
+      res.json(data);
+    } catch (error: any) {
+      console.error(`[3CX API] Error fetching user:`, error);
+      res.status(500).json({ error: error.message || "Failed to fetch user details" });
+    }
+  });
+
+  // Get list of trunks
+  app.get("/api/admin/tenant/:tenantId/3cx/trunks", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { mfaCode } = req.query;
+
+      const { token, serverUrl } = await get3CXAccessToken(tenantId, mfaCode as string);
+      const apiUrl = `${serverUrl}/xapi/v1/Trunks`;
+
+      console.log(`[3CX API] Fetching trunks from ${apiUrl}`);
+
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        signal: AbortSignal.timeout(10000),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[3CX API] Failed to fetch trunks: ${errorText}`);
+        throw new Error(`Failed to fetch trunks: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log(`[3CX API] Trunks retrieved successfully. Count: ${data.value?.length || 0}`);
+
+      // Log first trunk structure for debugging
+      if (data.value && data.value.length > 0) {
+        console.log(`[3CX API] Sample trunk structure:`, JSON.stringify(data.value[0], null, 2));
+      }
+
+      res.json(data);
+    } catch (error: any) {
+      console.error(`[3CX API] Error fetching trunks:`, error);
+      res.status(500).json({ error: error.message || "Failed to fetch trunks" });
+    }
+  });
+
+  // Get phone numbers/DIDs - try multiple possible endpoints
+  app.get("/api/admin/tenant/:tenantId/3cx/phone-numbers", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { mfaCode } = req.query;
+
+      const { token, serverUrl } = await get3CXAccessToken(tenantId, mfaCode as string);
+
+      // Try different possible endpoint names for DIDs/phone numbers
+      const possibleEndpoints = [
+        'DepartmentPhoneNumbers',
+        'SystemPhoneNumbers',
+        'PhoneNumbers',
+        'DidNumbers',
+        'Dids'
+      ];
+
+      let data = null;
+      let successEndpoint = null;
+
+      for (const endpoint of possibleEndpoints) {
+        const apiUrl = `${serverUrl}/xapi/v1/${endpoint}`;
+        console.log(`[3CX API] Trying endpoint: ${apiUrl}`);
+
+        try {
+          const response = await fetch(apiUrl, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            signal: AbortSignal.timeout(10000),
+          });
+
+          if (response.ok) {
+            data = await response.json();
+            successEndpoint = endpoint;
+            console.log(`[3CX API] ✓ Found working endpoint: ${endpoint} - Count: ${data.value?.length || 0}`);
+            break;
+          } else {
+            console.log(`[3CX API] ✗ ${endpoint} returned ${response.status}`);
+          }
+        } catch (err) {
+          console.log(`[3CX API] ✗ ${endpoint} failed: ${err.message}`);
+        }
+      }
+
+      if (data && successEndpoint) {
+        console.log(`[3CX API] Phone numbers retrieved successfully from ${successEndpoint}`);
+
+        // Log first phone number structure for debugging
+        if (data.value && data.value.length > 0) {
+          console.log(`[3CX API] Sample phone number structure:`, JSON.stringify(data.value[0], null, 2));
+        }
+
+        res.json(data);
+      } else {
+        console.log(`[3CX API] No working phone numbers endpoint found, returning empty list`);
+        res.json({ value: [], "@odata.count": 0 });
+      }
+    } catch (error: any) {
+      console.error(`[3CX API] Error fetching phone numbers:`, error);
+      res.status(500).json({ error: error.message || "Failed to fetch phone numbers" });
+    }
+  });
+
+  // Sync 3CX phone numbers to number management system
+  app.post("/api/admin/tenant/:tenantId/3cx/sync-numbers", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { mfaCode } = req.query;
+
+      console.log(`[3CX Sync] Starting sync for tenant ${tenantId}`);
+
+      // Get credentials and authenticate
+      const { token, serverUrl } = await get3CXAccessToken(tenantId, mfaCode as string | undefined);
+
+      // Try different possible endpoint names for DIDs/phone numbers
+      const possibleEndpoints = ['DepartmentPhoneNumbers', 'SystemPhoneNumbers', 'PhoneNumbers', 'DidNumbers', 'Dids'];
+      let data: any = null;
+
+      for (const endpoint of possibleEndpoints) {
+        const apiUrl = `${serverUrl}/xapi/v1/${endpoint}`;
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (response.ok) {
+          data = await response.json();
+          console.log(`[3CX Sync] Found DIDs from ${endpoint}. Count: ${data.value?.length || 0}`);
+          break;
+        }
+      }
+
+      if (!data || !data.value) {
+        return res.status(404).json({ error: "No phone numbers found in 3CX system" });
+      }
+
+      const phoneNumbers = data.value;
+      let synced = 0;
+      let updated = 0;
+      let errors = 0;
+
+      for (const phone of phoneNumbers) {
+        try {
+          // Format number as lineUri (tel:+15551234567)
+          const lineUri = phone.Number.startsWith('tel:') ? phone.Number : `tel:${phone.Number}`;
+
+          // Check if number already exists in inventory by querying directly
+          const [existing] = await db
+            .select()
+            .from(phoneNumberInventory)
+            .where(and(
+              eq(phoneNumberInventory.tenantId, tenantId),
+              eq(phoneNumberInventory.lineUri, lineUri)
+            ))
+            .limit(1);
+
+          if (existing) {
+            // Update existing number to mark it as 3CX
+            await storage.updatePhoneNumber(existing.id, {
+              externalSystemType: '3cx',
+              externalSystemId: phone.TrunkId?.toString() || null,
+              numberType: 'did',
+            });
+            updated++;
+            console.log(`[3CX Sync] Updated existing number ${phone.Number}`);
+          } else {
+            // Add new number to inventory
+            await storage.createPhoneNumber({
+              tenantId,
+              lineUri,
+              numberType: 'did',
+              status: 'used',
+              externalSystemType: '3cx',
+              externalSystemId: phone.TrunkId?.toString() || null,
+              createdBy: 'system:3cx-sync',
+              lastModifiedBy: 'system:3cx-sync',
+            });
+            synced++;
+            console.log(`[3CX Sync] Added new number ${phone.Number}`);
+          }
+        } catch (error: any) {
+          console.error(`[3CX Sync] Error syncing number ${phone.Number}:`, error.message);
+          errors++;
+        }
+      }
+
+      console.log(`[3CX Sync] Complete. Synced: ${synced}, Updated: ${updated}, Errors: ${errors}`);
+      res.json({
+        success: true,
+        synced,
+        updated,
+        errors,
+        total: phoneNumbers.length,
+      });
+    } catch (error: any) {
+      console.error(`[3CX Sync] Error syncing phone numbers:`, error);
+      res.status(500).json({ error: error.message || "Failed to sync phone numbers" });
     }
   });
 
