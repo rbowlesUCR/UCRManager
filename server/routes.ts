@@ -1283,34 +1283,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Update phone number
-  app.patch("/api/numbers/:id", requireOperatorAuth, async (req, res) => {
-    try {
-      const { id } = req.params;
-      const updates = req.body;
-      const operatorEmail = req.user?.email || "unknown";
-
-      // Verify number exists
-      const existingNumber = await storage.getPhoneNumber(id);
-      if (!existingNumber) {
-        return res.status(404).json({ error: "Phone number not found" });
-      }
-
-      // Add lastModifiedBy to updates
-      const updatesWithAudit = {
-        ...updates,
-        lastModifiedBy: operatorEmail,
-      };
-
-      const phoneNumber = await storage.updatePhoneNumber(id, updatesWithAudit);
-      res.json(phoneNumber);
-    } catch (error) {
-      console.error("Error updating phone number:", error);
-      res.status(500).json({ error: "Failed to update phone number" });
-    }
-  });
-
-  // Bulk update phone numbers
+  // Bulk update phone numbers (must come BEFORE :id route to avoid matching "bulk-update" as an id)
   app.patch("/api/numbers/bulk-update", requireOperatorAuth, async (req, res) => {
     try {
       const { ids, updates } = req.body;
@@ -1343,6 +1316,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error bulk updating phone numbers:", error);
       res.status(500).json({ error: "Failed to bulk update phone numbers" });
+    }
+  });
+
+  // Update phone number
+  app.patch("/api/numbers/:id", requireOperatorAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+      const operatorEmail = req.user?.email || "unknown";
+
+      // Verify number exists
+      const existingNumber = await storage.getPhoneNumber(id);
+      if (!existingNumber) {
+        return res.status(404).json({ error: "Phone number not found" });
+      }
+
+      // Add lastModifiedBy to updates
+      const updatesWithAudit = {
+        ...updates,
+        lastModifiedBy: operatorEmail,
+      };
+
+      const phoneNumber = await storage.updatePhoneNumber(id, updatesWithAudit);
+      res.json(phoneNumber);
+    } catch (error) {
+      console.error("Error updating phone number:", error);
+      res.status(500).json({ error: "Failed to update phone number" });
     }
   });
 

@@ -704,10 +704,19 @@ export default function NumberManagement() {
       return;
     }
 
-    // Filter out empty values
+    // Process bulk edit data
     const updates: any = {};
     Object.entries(bulkEditData).forEach(([key, value]) => {
-      if (value !== undefined && value !== '') {
+      // Handle "_clear" special value to set field to null
+      if (value === '_clear') {
+        updates[key] = null;
+      }
+      // Handle null explicitly (for clearing system type)
+      else if (value === null) {
+        updates[key] = null;
+      }
+      // Include non-empty values
+      else if (value !== undefined && value !== '') {
         updates[key] = value;
       }
     });
@@ -715,7 +724,7 @@ export default function NumberManagement() {
     // Add lastModifiedBy
     updates.lastModifiedBy = session.email;
 
-    if (Object.keys(updates).length === 0) {
+    if (Object.keys(updates).length === 1 && updates.lastModifiedBy) {
       toast({
         title: "No changes specified",
         description: "Please specify at least one field to update",
@@ -727,7 +736,7 @@ export default function NumberManagement() {
     try {
       const response = await apiRequest("PATCH", "/api/numbers/bulk-update", {
         tenantId: selectedTenant?.id,
-        numberIds: Array.from(selectedNumbers),
+        ids: Array.from(selectedNumbers),
         updates,
       });
 
@@ -1652,14 +1661,15 @@ export default function NumberManagement() {
 
       {/* Bulk Edit Dialog */}
       <Dialog open={isBulkEditDialogOpen} onOpenChange={setIsBulkEditDialogOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Bulk Edit Phone Numbers</DialogTitle>
             <DialogDescription>
-              Update {selectedNumbers.size} phone numbers. Only filled fields will be updated.
+              Update {selectedNumbers.size} phone numbers. Only filled fields will be updated. Leave fields empty to keep existing values.
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-4 py-4">
+            {/* Status */}
             <div className="space-y-2">
               <Label htmlFor="bulk-status">Status</Label>
               <Select value={bulkEditData.status} onValueChange={(value) => setBulkEditData({ ...bulkEditData, status: value as NumberStatus })}>
@@ -1667,6 +1677,7 @@ export default function NumberManagement() {
                   <SelectValue placeholder="Leave unchanged" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="_clear">Clear (leave empty)</SelectItem>
                   <SelectItem value="available">Available</SelectItem>
                   <SelectItem value="used">Used</SelectItem>
                   <SelectItem value="reserved">Reserved</SelectItem>
@@ -1674,6 +1685,36 @@ export default function NumberManagement() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Number Type */}
+            <div className="space-y-2">
+              <Label htmlFor="bulk-number-type">Number Type</Label>
+              <Select value={bulkEditData.numberType} onValueChange={(value) => setBulkEditData({ ...bulkEditData, numberType: value as NumberType })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Leave unchanged" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_clear">Clear (leave empty)</SelectItem>
+                  <SelectItem value="did">DID</SelectItem>
+                  <SelectItem value="extension">Extension</SelectItem>
+                  <SelectItem value="toll-free">Toll-Free</SelectItem>
+                  <SelectItem value="mailbox">Mailbox</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Display Name */}
+            <div className="space-y-2">
+              <Label htmlFor="bulk-display-name">Display Name</Label>
+              <Input
+                id="bulk-display-name"
+                placeholder="Leave unchanged"
+                value={bulkEditData.displayName || ''}
+                onChange={(e) => setBulkEditData({ ...bulkEditData, displayName: e.target.value })}
+              />
+            </div>
+
+            {/* Carrier */}
             <div className="space-y-2">
               <Label htmlFor="bulk-carrier">Carrier</Label>
               <Input
@@ -1683,6 +1724,8 @@ export default function NumberManagement() {
                 onChange={(e) => setBulkEditData({ ...bulkEditData, carrier: e.target.value })}
               />
             </div>
+
+            {/* Location */}
             <div className="space-y-2">
               <Label htmlFor="bulk-location">Location</Label>
               <Input
@@ -1692,6 +1735,8 @@ export default function NumberManagement() {
                 onChange={(e) => setBulkEditData({ ...bulkEditData, location: e.target.value })}
               />
             </div>
+
+            {/* Usage Location */}
             <div className="space-y-2">
               <Label htmlFor="bulk-usage-location">Usage Location</Label>
               <Input
@@ -1701,6 +1746,64 @@ export default function NumberManagement() {
                 onChange={(e) => setBulkEditData({ ...bulkEditData, usageLocation: e.target.value })}
               />
             </div>
+
+            {/* System Type - Checkboxes for multi-select */}
+            <div className="space-y-2 col-span-2">
+              <Label>Phone System</Label>
+              <div className="flex gap-4 p-3 border rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="bulk-system-teams"
+                    checked={parseSystemTypes(bulkEditData.externalSystemType).includes('teams')}
+                    onCheckedChange={(checked) => {
+                      const current = parseSystemTypes(bulkEditData.externalSystemType);
+                      const updated = checked
+                        ? [...current, 'teams']
+                        : current.filter(s => s !== 'teams');
+                      setBulkEditData({ ...bulkEditData, externalSystemType: formatSystemTypes(updated) });
+                    }}
+                  />
+                  <Label htmlFor="bulk-system-teams" className="font-normal cursor-pointer">
+                    Teams
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="bulk-system-3cx"
+                    checked={parseSystemTypes(bulkEditData.externalSystemType).includes('3cx')}
+                    onCheckedChange={(checked) => {
+                      const current = parseSystemTypes(bulkEditData.externalSystemType);
+                      const updated = checked
+                        ? [...current, '3cx']
+                        : current.filter(s => s !== '3cx');
+                      setBulkEditData({ ...bulkEditData, externalSystemType: formatSystemTypes(updated) });
+                    }}
+                  />
+                  <Label htmlFor="bulk-system-3cx" className="font-normal cursor-pointer">
+                    3CX
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox
+                    id="bulk-system-clear"
+                    checked={bulkEditData.externalSystemType === null}
+                    onCheckedChange={(checked) => {
+                      if (checked) {
+                        setBulkEditData({ ...bulkEditData, externalSystemType: null });
+                      }
+                    }}
+                  />
+                  <Label htmlFor="bulk-system-clear" className="font-normal cursor-pointer">
+                    Clear (none)
+                  </Label>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Select phone systems for these numbers. Check "Clear" to remove system association.
+              </p>
+            </div>
+
+            {/* Voice Routing Policy */}
             <div className="space-y-2 col-span-2">
               <Label htmlFor="bulk-voice-policy">Voice Routing Policy</Label>
               <Input
@@ -1710,15 +1813,22 @@ export default function NumberManagement() {
                 onChange={(e) => setBulkEditData({ ...bulkEditData, onlineVoiceRoutingPolicy: e.target.value })}
               />
             </div>
+
+            {/* Tags */}
             <div className="space-y-2 col-span-2">
               <Label htmlFor="bulk-tags">Tags</Label>
               <Input
                 id="bulk-tags"
-                placeholder="Leave unchanged"
+                placeholder="Leave unchanged (comma-separated)"
                 value={bulkEditData.tags || ''}
                 onChange={(e) => setBulkEditData({ ...bulkEditData, tags: e.target.value })}
               />
+              <p className="text-xs text-muted-foreground">
+                Comma-separated tags (e.g., "production, priority, california")
+              </p>
             </div>
+
+            {/* Notes */}
             <div className="space-y-2 col-span-2">
               <Label htmlFor="bulk-notes">Notes (will append to existing)</Label>
               <Textarea
@@ -1726,7 +1836,11 @@ export default function NumberManagement() {
                 placeholder="Leave unchanged"
                 value={bulkEditData.notes || ''}
                 onChange={(e) => setBulkEditData({ ...bulkEditData, notes: e.target.value })}
+                rows={3}
               />
+              <p className="text-xs text-muted-foreground">
+                Notes will be appended to existing notes for each number
+              </p>
             </div>
           </div>
           <DialogFooter>
@@ -1736,7 +1850,7 @@ export default function NumberManagement() {
             }}>
               Cancel
             </Button>
-            <Button onClick={handleBulkEdit}>
+            <Button onClick={handleBulkEdit} disabled={selectedNumbers.size === 0}>
               <Save className="w-4 h-4 mr-2" />
               Update {selectedNumbers.size} Numbers
             </Button>

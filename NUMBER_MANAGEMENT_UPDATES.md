@@ -284,3 +284,161 @@ req.session.user?.email  // ❌ Wrong
 ---
 
 **Status**: ✅ All features working perfectly on first try!
+
+---
+
+## 🔧 Update: Enhanced Bulk Edit Dialog (2025-11-13)
+
+**Status**: ✅ Complete and Tested
+
+### Overview
+Enhanced the bulk edit dialog with additional fields and improved UX for managing phone numbers in bulk.
+
+### Changes Made
+
+#### 1. Fixed Critical Route Ordering Bug ✅
+
+**Problem**: Bulk edit was returning 404 error due to Express route matching issue.
+
+**Root Cause**: The `/api/numbers/:id` route was defined BEFORE `/api/numbers/bulk-update`, causing Express to match "bulk-update" as an ID parameter.
+
+**Fix**: Reordered routes in `server/routes.ts`:
+```typescript
+// ✅ CORRECT ORDER (line 1287)
+app.patch("/api/numbers/bulk-update", ...)  // Specific route first
+app.patch("/api/numbers/:id", ...)           // Parameterized route second
+```
+
+**Result**: Bulk edit now works correctly ✅
+
+#### 2. Enhanced Bulk Edit Dialog Fields ✅
+
+**New Fields Added**:
+1. **Number Type** - Dropdown with options:
+   - Clear (leave empty)
+   - DID
+   - Extension
+   - Toll-Free
+   - Mailbox
+
+2. **Display Name** - Text input field for human-readable name
+
+3. **Phone System** - Checkbox group with:
+   - Teams
+   - 3CX
+   - Clear (none) - removes system association
+
+**Enhanced Fields**:
+- **Status** - Added "Clear (leave empty)" option
+- **Tags** - Added helper text for comma-separated format
+- **Notes** - Added helper text clarifying append behavior
+- **Update Button** - Now disabled when no numbers are selected
+
+### Files Modified
+
+**Backend**:
+- `server/routes.ts` (line 1287-1347) - Fixed route ordering
+
+**Frontend**:
+- `client/src/pages/number-management.tsx` - Enhanced bulk edit dialog:
+  - Lines 704-738: Updated `handleBulkEdit()` to handle `_clear` special value
+  - Lines 1661-1856: Enhanced dialog with new fields and improved layout
+  - Lines 19-26: Helper functions for system type parsing
+
+### Technical Details
+
+#### Special Value Handling
+The bulk edit now supports a special `_clear` value to set fields to null:
+
+```typescript
+if (value === '_clear') {
+  updates[key] = null;  // Explicitly clear the field
+}
+```
+
+#### API Payload
+```json
+{
+  "tenantId": "uuid",
+  "ids": ["id1", "id2", "id3"],
+  "updates": {
+    "status": "available",
+    "numberType": "did",
+    "displayName": "Main Line",
+    "externalSystemType": "teams,3cx",
+    "carrier": "AT&T",
+    "tags": "production,priority",
+    "lastModifiedBy": "operator@example.com"
+  }
+}
+```
+
+### UI Improvements
+
+1. **Better Layout**:
+   - Increased max width to `max-w-3xl`
+   - Added vertical scrolling for long forms
+   - Organized fields in logical groups
+
+2. **Helper Text**:
+   - Added descriptions for tags (comma-separated)
+   - Added clarification for notes (append behavior)
+   - Added explanation for system type checkboxes
+
+3. **Validation**:
+   - Update button disabled when no numbers selected
+   - Requires at least one field to be changed
+   - Shows clear error messages
+
+### Testing Results
+
+✅ Route ordering fix working
+✅ Number Type field functional
+✅ Display Name field functional
+✅ Phone System checkboxes working
+✅ Clear options working correctly
+✅ Multi-select numbers working
+✅ Bulk update successful
+✅ Toast notifications displaying
+✅ Form validation working
+
+### How to Use
+
+1. Navigate to Number Management page
+2. Select multiple phone numbers using checkboxes
+3. Click "Bulk Edit" button
+4. Fill in fields you want to update:
+   - Select "Clear" to remove existing values
+   - Leave fields empty to keep existing values
+   - Check/uncheck systems as needed
+5. Click "Update X Numbers" to apply changes
+6. See success notification with count
+
+### Example Use Cases
+
+**Scenario 1: Assign to Teams System**
+- Select 10 numbers
+- Check "Teams" under Phone System
+- Click Update
+
+**Scenario 2: Clear All Systems**
+- Select numbers
+- Check "Clear (none)" under Phone System
+- Click Update
+
+**Scenario 3: Set Number Type and Carrier**
+- Select numbers
+- Choose "DID" for Number Type
+- Enter "AT&T" for Carrier
+- Click Update
+
+**Scenario 4: Add Tags**
+- Select numbers
+- Enter "production,priority,california" in Tags
+- Click Update
+
+---
+
+**Commit**: Ready for commit with route fix and bulk edit enhancements
+**Next**: Consider adding batch import/export for tags and metadata
+
