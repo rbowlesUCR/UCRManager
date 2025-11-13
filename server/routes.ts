@@ -3910,7 +3910,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Default select fields
       if (!select) {
-        queryParams.set('$select', 'Id,Number,FirstName,LastName,DisplayName,EmailAddress,Require2FA');
+        queryParams.set('$select', 'Id,Number,FirstName,LastName,DisplayName,EmailAddress,OutboundCallerID,Mobile,Require2FA');
       }
 
       // Default ordering
@@ -4025,6 +4025,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { token, serverUrl } = await get3CXAccessToken(tenantId, mfaCode as string);
       const apiUrl = `${serverUrl}/xapi/v1/Users(${userId})`;
 
+      // Send update fields directly (no wrapper)
       console.log(`[3CX API] Updating user ${userId} at ${apiUrl}`, userData);
 
       const response = await fetch(apiUrl, {
@@ -4353,14 +4354,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { token, serverUrl } = await get3CXAccessToken(tenantId, mfaCode as string);
 
-      // Try possible endpoints
-      const possibleEndpoints = ['DepartmentPhoneNumbers', 'SystemPhoneNumbers', 'PhoneNumbers'];
+      // Try possible endpoints for phone numbers
+      const possibleEndpoints = ['DidNumbers', 'DepartmentPhoneNumbers', 'SystemPhoneNumbers', 'PhoneNumbers'];
 
+      // Find the working endpoint by trying PATCH with each
       for (const endpoint of possibleEndpoints) {
         const apiUrl = `${serverUrl}/xapi/v1/${endpoint}(${numberId})`;
-        console.log(`[3CX API] Trying to update phone number at ${apiUrl}`, phoneData);
 
         try {
+          console.log(`[3CX API] Trying to update phone number at ${apiUrl}`, phoneData);
+
           const response = await fetch(apiUrl, {
             method: 'PATCH',
             headers: {
@@ -4375,20 +4378,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const data = response.status === 204 ? { success: true } : await response.json();
             console.log(`[3CX API] Phone number updated successfully at ${endpoint}`);
             return res.json(data);
-          } else if (response.status === 404 || response.status === 405) {
-            continue;
-          } else {
-            const errorText = await response.text();
-            console.error(`[3CX API] Failed to update phone number at ${endpoint}: ${errorText}`);
-            return res.status(response.status).json({ error: errorText });
           }
-        } catch (err) {
-          console.log(`[3CX API] Error with ${endpoint}:`, err.message);
-          continue;
+
+          // If 404, try next endpoint
+          if (response.status === 404) {
+            continue;
+          }
+
+          // For other errors, throw
+          const errorText = await response.text();
+          throw new Error(`Failed to update phone number: ${response.status} - ${errorText}`);
+        } catch (err: any) {
+          if (err.message.includes('404')) {
+            continue;
+          }
+          throw err;
         }
       }
 
-      throw new Error("No working endpoint found for updating phone numbers");
+      throw new Error("Could not find working endpoint for phone number update");
     } catch (error: any) {
       console.error(`[3CX API] Error updating phone number:`, error);
       res.status(500).json({ error: error.message || "Failed to update phone number" });

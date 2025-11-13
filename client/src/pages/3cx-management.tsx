@@ -73,7 +73,7 @@ interface ThreeCXUser {
   EmailAddress: string;
   Require2FA: boolean;
   OutboundCallerID?: string;
-  MobileNumber?: string;
+  Mobile?: string;
   AuthID?: string;
 }
 
@@ -576,7 +576,7 @@ export default function ThreeCXManagement() {
       LastName: "",
       EmailAddress: "",
       OutboundCallerID: "",
-      MobileNumber: "",
+      Mobile: "",
       Require2FA: false,
     });
     setSelectedUser(null);
@@ -603,7 +603,7 @@ export default function ThreeCXManagement() {
       LastName: user.LastName || "",
       EmailAddress: user.EmailAddress || "",
       OutboundCallerID: user.OutboundCallerID || "",
-      MobileNumber: user.MobileNumber || "",
+      Mobile: user.Mobile || "",
       Require2FA: user.Require2FA || false,
     });
     setUserDialogMode("edit");
@@ -1258,8 +1258,8 @@ export default function ThreeCXManagement() {
               <Label htmlFor="user-mobile">Mobile Number</Label>
               <Input
                 id="user-mobile"
-                value={userFormData.MobileNumber}
-                onChange={(e) => setUserFormData({ ...userFormData, MobileNumber: e.target.value })}
+                value={userFormData.Mobile}
+                onChange={(e) => setUserFormData({ ...userFormData, Mobile: e.target.value })}
                 placeholder="+15551234567"
               />
             </div>
