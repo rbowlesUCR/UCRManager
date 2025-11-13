@@ -109,6 +109,24 @@ export default function Dashboard() {
   // Check if bulk assignment feature is enabled
   const isBulkAssignmentEnabled = bulkAssignmentFlag?.isEnabled ?? false;
 
+
+  // Fetch manual phone entry feature flag
+  const { data: manualPhoneEntryFlag } = useQuery<FeatureFlag>({
+    queryKey: ["/api/feature-flags/allow_manual_phone_entry"],
+    queryFn: async () => {
+      const res = await fetch("/api/feature-flags/allow_manual_phone_entry", {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        return { isEnabled: false }; // Default to disabled if fetch fails
+      }
+      return await res.json();
+    },
+  });
+
+  // Check if manual phone entry is enabled
+  const isManualPhoneEntryEnabled = manualPhoneEntryFlag?.isEnabled ?? false;
+
   // Fetch current voice configuration for selected user via PowerShell
   const { data: userVoiceConfig, isLoading: isLoadingVoiceConfig } = useQuery<UserVoiceConfig>({
     queryKey: ["/api/teams/user-voice-config", selectedTenant?.id, selectedUser?.userPrincipalName],
@@ -694,31 +712,44 @@ export default function Dashboard() {
                 Phone Number (Line URI)
               </Label>
               <div className="flex gap-2">
-                <Input
-                  id="phone-number"
-                  type="text"
-                  placeholder="+15551234567"
-                  value={phoneNumber}
-                  onChange={(e) => handlePhoneNumberChange(e.target.value)}
-                  className={`h-11 flex-1 ${
-                    phoneValidation && !phoneValidation.isValid
-                      ? "border-destructive focus-visible:ring-destructive"
-                      : phoneValidation && phoneValidation.isValid
-                      ? "border-green-500 focus-visible:ring-green-500"
-                      : ""
-                  }`}
-                  disabled={!selectedUser}
-                  data-testid="input-phone-number"
-                />
+                {isManualPhoneEntryEnabled ? (
+                  <Input
+                    id="phone-number"
+                    type="text"
+                    placeholder="+15551234567"
+                    value={phoneNumber}
+                    onChange={(e) => handlePhoneNumberChange(e.target.value)}
+                    className={`h-11 flex-1 ${
+                      phoneValidation && !phoneValidation.isValid
+                        ? "border-destructive focus-visible:ring-destructive"
+                        : phoneValidation && phoneValidation.isValid
+                        ? "border-green-500 focus-visible:ring-green-500"
+                        : ""
+                    }`}
+                    disabled={!selectedUser}
+                    data-testid="input-phone-number"
+                  />
+                ) : (
+                  <Input
+                    id="phone-number-display"
+                    type="text"
+                    placeholder="Click 'Select Number' to choose from available DIDs"
+                    value={phoneNumber}
+                    readOnly
+                    className="h-11 flex-1 bg-muted cursor-not-allowed"
+                    disabled={!selectedUser}
+                  />
+                )}
                 <Button
                   type="button"
-                  variant="outline"
+                  variant={isManualPhoneEntryEnabled ? "outline" : "default"}
                   onClick={() => setShowPhonePickerDialog(true)}
                   disabled={!selectedUser || !selectedTenant}
-                  className="h-11"
+                  className="h-11 min-w-[160px]"
                   title="Select from available numbers"
                 >
-                  <List className="w-4 h-4" />
+                  <List className="w-4 h-4 mr-2" />
+                  Select Number
                 </Button>
               </div>
               {phoneValidation && (

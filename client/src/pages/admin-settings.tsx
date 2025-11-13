@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { AdminLayout } from "@/components/admin-layout";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Eye, EyeOff, Key, AlertCircle, CheckCircle2, Cloud, Bug } from "lucide-react";
+import { Eye, EyeOff, Key, AlertCircle, CheckCircle2, Cloud, Bug, Phone } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Switch } from "@/components/ui/switch";
 
@@ -49,6 +49,20 @@ export default function AdminSettings() {
   // Fetch debug status
   const { data: debugStatus } = useQuery<{ enabled: boolean }>({
     queryKey: ["/api/admin/debug/status"],
+  });
+
+  // Fetch manual phone entry feature flag
+  const { data: manualPhoneEntryFlag } = useQuery<{ isEnabled: boolean }>({
+    queryKey: ["/api/feature-flags/allow_manual_phone_entry"],
+    queryFn: async () => {
+      const res = await fetch("/api/feature-flags/allow_manual_phone_entry", {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        return { isEnabled: false };
+      }
+      return await res.json();
+    },
   });
 
   // Update state when config is loaded
@@ -166,6 +180,34 @@ export default function AdminSettings() {
       });
     },
   });
+
+  const toggleManualPhoneEntryMutation = useMutation({
+    mutationFn: async () => {
+      const response = await apiRequest("POST", "/api/admin/feature-flags/allow_manual_phone_entry/toggle", {});
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to toggle manual phone entry");
+      }
+      return await response.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: data.isEnabled ? "Manual phone entry enabled" : "Manual phone entry disabled",
+        description: data.isEnabled
+          ? "Operators can now manually enter phone numbers in Voice Configuration"
+          : "Operators must select phone numbers from the DID picklist",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/feature-flags/allow_manual_phone_entry"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to toggle setting",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
 
   const handleUsernameSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -696,6 +738,56 @@ export default function AdminSettings() {
               )}
             </CardContent>
           </Card>
+
+          {/* Voice Configuration Settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Phone className="h-5 w-5" />
+                Voice Configuration Settings
+              </CardTitle>
+              <CardDescription>
+                Control how operators assign phone numbers to users
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between space-x-4">
+                <div className="flex-1 space-y-1">
+                  <Label htmlFor="manual-phone-entry" className="text-base font-medium">
+                    Allow Manual Phone Number Entry
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    When enabled, operators can manually type phone numbers. When disabled, operators must select from the DID picklist.
+                  </p>
+                </div>
+                <Switch
+                  id="manual-phone-entry"
+                  checked={manualPhoneEntryFlag?.isEnabled ?? false}
+                  onCheckedChange={() => toggleManualPhoneEntryMutation.mutate()}
+                  disabled={toggleManualPhoneEntryMutation.isPending}
+                />
+              </div>
+
+              {!manualPhoneEntryFlag?.isEnabled && (
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    <strong>Manual entry is disabled.</strong> Operators must select phone numbers from the DID picklist in Voice Configuration. This ensures only valid numbers from your inventory are assigned.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {manualPhoneEntryFlag?.isEnabled && (
+                <Alert className="border-yellow-200 bg-yellow-50 dark:bg-yellow-950 dark:border-yellow-800">
+                  <AlertCircle className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
+                  <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+                    <strong>Warning:</strong> Manual entry allows operators to type any phone number, including numbers not in your inventory. This may lead to assignment errors.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
+
 
           {/* Security Best Practices */}
           <Card>

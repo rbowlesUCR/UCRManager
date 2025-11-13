@@ -972,6 +972,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Toggle feature flag (for admin settings toggles)
+  app.post("/api/admin/feature-flags/:featureKey/toggle", requireAdminAuth, async (req, res) => {
+    try {
+      const { featureKey } = req.params;
+
+      // Get current flag state
+      const current = await storage.getFeatureFlag(featureKey);
+      if (!current) {
+        return res.status(404).json({ error: `Feature flag '${featureKey}' not found` });
+      }
+
+      // Toggle it
+      const updated = await storage.updateFeatureFlag(featureKey, !current.isEnabled);
+      res.json(updated);
+    } catch (error) {
+      console.error('Error toggling feature flag:', error);
+      res.status(500).json({ error: 'Failed to toggle feature flag' });
+    }
+  });
+
   // ===== TENANT MANAGEMENT ROUTES =====
 
   // Get all customer tenants
