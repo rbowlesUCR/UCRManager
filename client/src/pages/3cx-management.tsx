@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -14,7 +16,37 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Server, Users, Phone, TrendingUp, Settings, CheckCircle, AlertCircle, Loader2, Lock, RefreshCw } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Server,
+  Users,
+  Phone,
+  TrendingUp,
+  Settings,
+  CheckCircle,
+  AlertCircle,
+  Loader2,
+  Lock,
+  RefreshCw,
+  Plus,
+  Edit,
+  Trash2,
+  MoreVertical,
+  UserPlus,
+  PhoneIncoming,
+} from "lucide-react";
 import { TenantSelector } from "@/components/tenant-selector";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
@@ -40,6 +72,9 @@ interface ThreeCXUser {
   DisplayName: string;
   EmailAddress: string;
   Require2FA: boolean;
+  OutboundCallerID?: string;
+  MobileNumber?: string;
+  AuthID?: string;
 }
 
 interface ThreeCXTrunk {
@@ -57,15 +92,18 @@ interface ThreeCXTrunk {
 }
 
 interface ThreeCXPhoneNumber {
+  Id?: string;
   Number: string;
   TrunkId: number;
-  TemplateFileName: string;
+  TemplateFileName?: string;
 }
 
 interface ODataResponse<T> {
   value: T[];
   "@odata.count"?: number;
 }
+
+type DialogMode = "add" | "edit" | "delete" | null;
 
 export default function ThreeCXManagement() {
   const [selectedTenant, setSelectedTenant] = useState<CustomerTenant | null>(null);
@@ -75,6 +113,28 @@ export default function ThreeCXManagement() {
   const [showMfaDialog, setShowMfaDialog] = useState(false);
   const [authenticating, setAuthenticating] = useState(false);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // User dialog state
+  const [userDialogMode, setUserDialogMode] = useState<DialogMode>(null);
+  const [selectedUser, setSelectedUser] = useState<ThreeCXUser | null>(null);
+  const [userFormData, setUserFormData] = useState({
+    Number: "",
+    FirstName: "",
+    LastName: "",
+    EmailAddress: "",
+    OutboundCallerID: "",
+    MobileNumber: "",
+    Require2FA: false,
+  });
+
+  // Phone number dialog state
+  const [phoneDialogMode, setPhoneDialogMode] = useState<DialogMode>(null);
+  const [selectedPhone, setSelectedPhone] = useState<ThreeCXPhoneNumber | null>(null);
+  const [phoneFormData, setPhoneFormData] = useState({
+    Number: "",
+    TrunkId: "",
+  });
 
   // Fetch existing credentials when tenant is selected
   const { data: credentials, isLoading: loadingCredentials } = useQuery<ThreeCXCredentials>({
@@ -175,7 +235,6 @@ export default function ThreeCXManagement() {
       setMfaCode("");
       setShowMfaDialog(true);
     } else {
-      // No MFA needed, just mark as authenticated and fetch data
       setIsAuthenticated(true);
     }
   };
@@ -193,7 +252,6 @@ export default function ThreeCXManagement() {
 
     setAuthenticating(true);
     try {
-      // Test authentication by calling system info endpoint
       const url = `/api/admin/tenant/${selectedTenant?.id}/3cx/system-info?mfaCode=${encodeURIComponent(mfaCode)}`;
       const res = await fetch(url, {
         credentials: "include",
@@ -203,7 +261,6 @@ export default function ThreeCXManagement() {
         throw new Error("Authentication failed");
       }
 
-      // Success - mark as authenticated and close dialog
       setIsAuthenticated(true);
       setShowMfaDialog(false);
 
@@ -212,7 +269,6 @@ export default function ThreeCXManagement() {
         description: "Successfully authenticated to 3CX server",
       });
 
-      // Trigger data refetch
       refetchUsers();
       refetchTrunks();
       refetchPhoneNumbers();
@@ -226,6 +282,244 @@ export default function ThreeCXManagement() {
       setAuthenticating(false);
     }
   };
+
+  // ===== USER MUTATIONS =====
+
+  // Create user mutation
+  const createUserMutation = useMutation({
+    mutationFn: async (userData: any) => {
+      const payload = { ...userData };
+      if (credentials?.mfaEnabled) {
+        payload.mfaCode = mfaCode;
+      }
+
+      const res = await fetch(`/api/admin/tenant/${selectedTenant?.id}/3cx/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to create user");
+      }
+
+      return await res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "User Created",
+        description: "User/extension created successfully",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/tenant/:tenantId/3cx/users"] });
+      setUserDialogMode(null);
+      resetUserForm();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Create Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Update user mutation
+  const updateUserMutation = useMutation({
+    mutationFn: async ({ userId, userData }: { userId: string; userData: any }) => {
+      const payload = { ...userData };
+      if (credentials?.mfaEnabled) {
+        payload.mfaCode = mfaCode;
+      }
+
+      const res = await fetch(`/api/admin/tenant/${selectedTenant?.id}/3cx/users/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to update user");
+      }
+
+      return res.status === 204 ? { success: true } : await res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "User Updated",
+        description: "User/extension updated successfully",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/tenant/:tenantId/3cx/users"] });
+      setUserDialogMode(null);
+      resetUserForm();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Update Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Delete user mutation
+  const deleteUserMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const url = credentials?.mfaEnabled && mfaCode
+        ? `/api/admin/tenant/${selectedTenant?.id}/3cx/users/${userId}?mfaCode=${encodeURIComponent(mfaCode)}`
+        : `/api/admin/tenant/${selectedTenant?.id}/3cx/users/${userId}`;
+
+      const res = await fetch(url, {
+        method: "DELETE",
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to delete user");
+      }
+
+      return await res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "User Deleted",
+        description: "User/extension deleted successfully",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/tenant/:tenantId/3cx/users"] });
+      setUserDialogMode(null);
+      setSelectedUser(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Delete Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // ===== PHONE NUMBER MUTATIONS =====
+
+  // Create phone number mutation
+  const createPhoneMutation = useMutation({
+    mutationFn: async (phoneData: any) => {
+      const payload = { ...phoneData, TrunkId: parseInt(phoneData.TrunkId) };
+      if (credentials?.mfaEnabled) {
+        payload.mfaCode = mfaCode;
+      }
+
+      const res = await fetch(`/api/admin/tenant/${selectedTenant?.id}/3cx/phone-numbers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to create phone number");
+      }
+
+      return await res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Phone Number Created",
+        description: "DID/phone number created successfully",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/tenant/:tenantId/3cx/phone-numbers"] });
+      setPhoneDialogMode(null);
+      resetPhoneForm();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Create Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Update phone number mutation
+  const updatePhoneMutation = useMutation({
+    mutationFn: async ({ numberId, phoneData }: { numberId: string; phoneData: any }) => {
+      const payload = { ...phoneData, TrunkId: parseInt(phoneData.TrunkId) };
+      if (credentials?.mfaEnabled) {
+        payload.mfaCode = mfaCode;
+      }
+
+      const res = await fetch(`/api/admin/tenant/${selectedTenant?.id}/3cx/phone-numbers/${numberId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to update phone number");
+      }
+
+      return res.status === 204 ? { success: true } : await res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Phone Number Updated",
+        description: "DID/phone number updated successfully",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/tenant/:tenantId/3cx/phone-numbers"] });
+      setPhoneDialogMode(null);
+      resetPhoneForm();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Update Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Delete phone number mutation
+  const deletePhoneMutation = useMutation({
+    mutationFn: async (numberId: string) => {
+      const url = credentials?.mfaEnabled && mfaCode
+        ? `/api/admin/tenant/${selectedTenant?.id}/3cx/phone-numbers/${numberId}?mfaCode=${encodeURIComponent(mfaCode)}`
+        : `/api/admin/tenant/${selectedTenant?.id}/3cx/phone-numbers/${numberId}`;
+
+      const res = await fetch(url, {
+        method: "DELETE",
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Failed to delete phone number");
+      }
+
+      return await res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Phone Number Deleted",
+        description: "DID/phone number deleted successfully",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/tenant/:tenantId/3cx/phone-numbers"] });
+      setPhoneDialogMode(null);
+      setSelectedPhone(null);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Delete Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   // Sync mutation
   const syncNumbers = useMutation({
@@ -271,6 +565,94 @@ export default function ThreeCXManagement() {
       return;
     }
     syncNumbers.mutate();
+  };
+
+  // ===== FORM HANDLERS =====
+
+  const resetUserForm = () => {
+    setUserFormData({
+      Number: "",
+      FirstName: "",
+      LastName: "",
+      EmailAddress: "",
+      OutboundCallerID: "",
+      MobileNumber: "",
+      Require2FA: false,
+    });
+    setSelectedUser(null);
+  };
+
+  const resetPhoneForm = () => {
+    setPhoneFormData({
+      Number: "",
+      TrunkId: "",
+    });
+    setSelectedPhone(null);
+  };
+
+  const handleAddUser = () => {
+    resetUserForm();
+    setUserDialogMode("add");
+  };
+
+  const handleEditUser = (user: ThreeCXUser) => {
+    setSelectedUser(user);
+    setUserFormData({
+      Number: user.Number || "",
+      FirstName: user.FirstName || "",
+      LastName: user.LastName || "",
+      EmailAddress: user.EmailAddress || "",
+      OutboundCallerID: user.OutboundCallerID || "",
+      MobileNumber: user.MobileNumber || "",
+      Require2FA: user.Require2FA || false,
+    });
+    setUserDialogMode("edit");
+  };
+
+  const handleDeleteUser = (user: ThreeCXUser) => {
+    setSelectedUser(user);
+    setUserDialogMode("delete");
+  };
+
+  const handleAddPhone = () => {
+    resetPhoneForm();
+    setPhoneDialogMode("add");
+  };
+
+  const handleEditPhone = (phone: ThreeCXPhoneNumber) => {
+    setSelectedPhone(phone);
+    setPhoneFormData({
+      Number: phone.Number || "",
+      TrunkId: phone.TrunkId?.toString() || "",
+    });
+    setPhoneDialogMode("edit");
+  };
+
+  const handleDeletePhone = (phone: ThreeCXPhoneNumber) => {
+    setSelectedPhone(phone);
+    setPhoneDialogMode("delete");
+  };
+
+  const handleUserSubmit = () => {
+    if (userDialogMode === "add") {
+      createUserMutation.mutate(userFormData);
+    } else if (userDialogMode === "edit" && selectedUser) {
+      updateUserMutation.mutate({
+        userId: selectedUser.Id,
+        userData: userFormData,
+      });
+    }
+  };
+
+  const handlePhoneSubmit = () => {
+    if (phoneDialogMode === "add") {
+      createPhoneMutation.mutate(phoneFormData);
+    } else if (phoneDialogMode === "edit" && selectedPhone) {
+      updatePhoneMutation.mutate({
+        numberId: selectedPhone.Id || selectedPhone.Number,
+        phoneData: phoneFormData,
+      });
+    }
   };
 
   // Reset authentication when tenant changes
@@ -496,13 +878,23 @@ export default function ThreeCXManagement() {
           {/* Users/Extensions Table */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="w-5 h-5" />
-                Users & Extensions
-              </CardTitle>
-              <CardDescription>
-                Manage 3CX users and extension assignments for {selectedTenant.tenantName}
-              </CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="w-5 h-5" />
+                    Users & Extensions
+                  </CardTitle>
+                  <CardDescription>
+                    Manage 3CX users and extension assignments for {selectedTenant.tenantName}
+                  </CardDescription>
+                </div>
+                {canFetchData && (
+                  <Button onClick={handleAddUser} size="sm">
+                    <UserPlus className="w-4 h-4 mr-2" />
+                    Add User
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               {loadingUsers ? (
@@ -518,6 +910,7 @@ export default function ThreeCXManagement() {
                         <TableHead>Name</TableHead>
                         <TableHead>Email</TableHead>
                         <TableHead>2FA</TableHead>
+                        <TableHead className="w-[80px]">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -532,6 +925,28 @@ export default function ThreeCXManagement() {
                             ) : (
                               <span className="text-muted-foreground">-</span>
                             )}
+                          </TableCell>
+                          <TableCell>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm">
+                                  <MoreVertical className="w-4 h-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleEditUser(user)}>
+                                  <Edit className="w-4 h-4 mr-2" />
+                                  Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleDeleteUser(user)}
+                                  className="text-destructive"
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -623,26 +1038,34 @@ export default function ThreeCXManagement() {
                     Manage phone numbers and DID assignments for {selectedTenant.tenantName}
                   </CardDescription>
                 </div>
-                {canFetchData && phoneNumbers.length > 0 && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleSyncNumbers}
-                    disabled={syncNumbers.isPending}
-                  >
-                    {syncNumbers.isPending ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Syncing...
-                      </>
-                    ) : (
-                      <>
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                        Sync to Number Management
-                      </>
-                    )}
-                  </Button>
-                )}
+                <div className="flex gap-2">
+                  {canFetchData && phoneNumbers.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSyncNumbers}
+                      disabled={syncNumbers.isPending}
+                    >
+                      {syncNumbers.isPending ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Syncing...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          Sync to Number Management
+                        </>
+                      )}
+                    </Button>
+                  )}
+                  {canFetchData && (
+                    <Button onClick={handleAddPhone} size="sm">
+                      <PhoneIncoming className="w-4 h-4 mr-2" />
+                      Add DID
+                    </Button>
+                  )}
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -658,14 +1081,37 @@ export default function ThreeCXManagement() {
                         <TableHead>Number</TableHead>
                         <TableHead>Trunk ID</TableHead>
                         <TableHead>Template</TableHead>
+                        <TableHead className="w-[80px]">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {phoneNumbers.map((phone, idx) => (
-                        <TableRow key={`${phone.Number}-${idx}`}>
+                        <TableRow key={phone.Id || `${phone.Number}-${idx}`}>
                           <TableCell className="font-medium">{phone.Number}</TableCell>
                           <TableCell>{phone.TrunkId}</TableCell>
-                          <TableCell className="text-muted-foreground text-sm">{phone.TemplateFileName}</TableCell>
+                          <TableCell className="text-muted-foreground text-sm">{phone.TemplateFileName || "-"}</TableCell>
+                          <TableCell>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm">
+                                  <MoreVertical className="w-4 h-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleEditPhone(phone)}>
+                                  <Edit className="w-4 h-4 mr-2" />
+                                  Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleDeletePhone(phone)}
+                                  className="text-destructive"
+                                >
+                                  <Trash2 className="w-4 h-4 mr-2" />
+                                  Delete
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -743,6 +1189,238 @@ export default function ThreeCXManagement() {
                 </>
               ) : (
                 "Authenticate"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* User Add/Edit Dialog */}
+      <Dialog open={userDialogMode === "add" || userDialogMode === "edit"} onOpenChange={(open) => !open && setUserDialogMode(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{userDialogMode === "add" ? "Add User/Extension" : "Edit User/Extension"}</DialogTitle>
+            <DialogDescription>
+              {userDialogMode === "add"
+                ? "Create a new user and extension in 3CX"
+                : `Update user ${selectedUser?.Number} - ${selectedUser?.DisplayName}`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="user-number">Extension Number *</Label>
+              <Input
+                id="user-number"
+                value={userFormData.Number}
+                onChange={(e) => setUserFormData({ ...userFormData, Number: e.target.value })}
+                placeholder="e.g., 100"
+                disabled={userDialogMode === "edit"}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="user-email">Email Address *</Label>
+              <Input
+                id="user-email"
+                type="email"
+                value={userFormData.EmailAddress}
+                onChange={(e) => setUserFormData({ ...userFormData, EmailAddress: e.target.value })}
+                placeholder="user@example.com"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="user-firstname">First Name *</Label>
+              <Input
+                id="user-firstname"
+                value={userFormData.FirstName}
+                onChange={(e) => setUserFormData({ ...userFormData, FirstName: e.target.value })}
+                placeholder="John"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="user-lastname">Last Name *</Label>
+              <Input
+                id="user-lastname"
+                value={userFormData.LastName}
+                onChange={(e) => setUserFormData({ ...userFormData, LastName: e.target.value })}
+                placeholder="Doe"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="user-outbound">Outbound Caller ID</Label>
+              <Input
+                id="user-outbound"
+                value={userFormData.OutboundCallerID}
+                onChange={(e) => setUserFormData({ ...userFormData, OutboundCallerID: e.target.value })}
+                placeholder="+15551234567"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="user-mobile">Mobile Number</Label>
+              <Input
+                id="user-mobile"
+                value={userFormData.MobileNumber}
+                onChange={(e) => setUserFormData({ ...userFormData, MobileNumber: e.target.value })}
+                placeholder="+15551234567"
+              />
+            </div>
+            <div className="space-y-2 col-span-2">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="user-2fa"
+                  checked={userFormData.Require2FA}
+                  onCheckedChange={(checked) => setUserFormData({ ...userFormData, Require2FA: checked as boolean })}
+                />
+                <Label htmlFor="user-2fa" className="font-normal cursor-pointer">
+                  Require 2FA for this user
+                </Label>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUserDialogMode(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleUserSubmit}
+              disabled={createUserMutation.isPending || updateUserMutation.isPending || !userFormData.Number || !userFormData.EmailAddress || !userFormData.FirstName || !userFormData.LastName}
+            >
+              {(createUserMutation.isPending || updateUserMutation.isPending) ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  {userDialogMode === "add" ? "Creating..." : "Updating..."}
+                </>
+              ) : (
+                userDialogMode === "add" ? "Create User" : "Update User"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* User Delete Confirmation Dialog */}
+      <Dialog open={userDialogMode === "delete"} onOpenChange={(open) => !open && setUserDialogMode(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete User/Extension</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete user {selectedUser?.Number} - {selectedUser?.DisplayName}? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUserDialogMode(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => selectedUser && deleteUserMutation.mutate(selectedUser.Id)}
+              disabled={deleteUserMutation.isPending}
+            >
+              {deleteUserMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete User"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Phone Number Add/Edit Dialog */}
+      <Dialog open={phoneDialogMode === "add" || phoneDialogMode === "edit"} onOpenChange={(open) => !open && setPhoneDialogMode(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{phoneDialogMode === "add" ? "Add Phone Number/DID" : "Edit Phone Number/DID"}</DialogTitle>
+            <DialogDescription>
+              {phoneDialogMode === "add"
+                ? "Add a new DID to your 3CX system"
+                : `Update phone number ${selectedPhone?.Number}`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="phone-number">Phone Number *</Label>
+              <Input
+                id="phone-number"
+                value={phoneFormData.Number}
+                onChange={(e) => setPhoneFormData({ ...phoneFormData, Number: e.target.value })}
+                placeholder="+15551234567"
+                disabled={phoneDialogMode === "edit"}
+              />
+              <p className="text-xs text-muted-foreground">
+                Enter the full phone number with country code (e.g., +15551234567)
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone-trunk">Trunk *</Label>
+              <Select
+                value={phoneFormData.TrunkId}
+                onValueChange={(value) => setPhoneFormData({ ...phoneFormData, TrunkId: value })}
+              >
+                <SelectTrigger id="phone-trunk">
+                  <SelectValue placeholder="Select trunk" />
+                </SelectTrigger>
+                <SelectContent>
+                  {trunks.map((trunk) => (
+                    <SelectItem key={trunk.Id} value={trunk.Id.toString()}>
+                      {trunk.Number} - {trunk.Gateway.Name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Select the trunk this DID will be associated with
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPhoneDialogMode(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handlePhoneSubmit}
+              disabled={createPhoneMutation.isPending || updatePhoneMutation.isPending || !phoneFormData.Number || !phoneFormData.TrunkId}
+            >
+              {(createPhoneMutation.isPending || updatePhoneMutation.isPending) ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  {phoneDialogMode === "add" ? "Creating..." : "Updating..."}
+                </>
+              ) : (
+                phoneDialogMode === "add" ? "Create DID" : "Update DID"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Phone Number Delete Confirmation Dialog */}
+      <Dialog open={phoneDialogMode === "delete"} onOpenChange={(open) => !open && setPhoneDialogMode(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Phone Number/DID</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete phone number {selectedPhone?.Number}? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPhoneDialogMode(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => selectedPhone && deletePhoneMutation.mutate(selectedPhone.Id || selectedPhone.Number)}
+              disabled={deletePhoneMutation.isPending}
+            >
+              {deletePhoneMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete Phone Number"
               )}
             </Button>
           </DialogFooter>

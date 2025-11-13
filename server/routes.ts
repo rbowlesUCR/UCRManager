@@ -3980,6 +3980,112 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Create new user/extension
+  app.post("/api/admin/tenant/:tenantId/3cx/users", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { mfaCode, ...userData } = req.body;
+
+      const { token, serverUrl } = await get3CXAccessToken(tenantId, mfaCode as string);
+      const apiUrl = `${serverUrl}/xapi/v1/Users`;
+
+      console.log(`[3CX API] Creating user at ${apiUrl}`, userData);
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(userData),
+        signal: AbortSignal.timeout(30000),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[3CX API] Failed to create user: ${errorText}`);
+        throw new Error(`Failed to create user: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log(`[3CX API] User created successfully:`, data);
+      res.json(data);
+    } catch (error: any) {
+      console.error(`[3CX API] Error creating user:`, error);
+      res.status(500).json({ error: error.message || "Failed to create user" });
+    }
+  });
+
+  // Update existing user/extension
+  app.patch("/api/admin/tenant/:tenantId/3cx/users/:userId", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId, userId } = req.params;
+      const { mfaCode, ...userData } = req.body;
+
+      const { token, serverUrl } = await get3CXAccessToken(tenantId, mfaCode as string);
+      const apiUrl = `${serverUrl}/xapi/v1/Users(${userId})`;
+
+      console.log(`[3CX API] Updating user ${userId} at ${apiUrl}`, userData);
+
+      const response = await fetch(apiUrl, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(userData),
+        signal: AbortSignal.timeout(30000),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[3CX API] Failed to update user: ${errorText}`);
+        throw new Error(`Failed to update user: ${response.status} - ${errorText}`);
+      }
+
+      // PATCH may return 204 No Content on success
+      const data = response.status === 204 ? { success: true } : await response.json();
+      console.log(`[3CX API] User ${userId} updated successfully`);
+      res.json(data);
+    } catch (error: any) {
+      console.error(`[3CX API] Error updating user:`, error);
+      res.status(500).json({ error: error.message || "Failed to update user" });
+    }
+  });
+
+  // Delete user/extension
+  app.delete("/api/admin/tenant/:tenantId/3cx/users/:userId", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId, userId } = req.params;
+      const { mfaCode } = req.query;
+
+      const { token, serverUrl } = await get3CXAccessToken(tenantId, mfaCode as string);
+      const apiUrl = `${serverUrl}/xapi/v1/Users(${userId})`;
+
+      console.log(`[3CX API] Deleting user ${userId} at ${apiUrl}`);
+
+      const response = await fetch(apiUrl, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        signal: AbortSignal.timeout(30000),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[3CX API] Failed to delete user: ${errorText}`);
+        throw new Error(`Failed to delete user: ${response.status} - ${errorText}`);
+      }
+
+      console.log(`[3CX API] User ${userId} deleted successfully`);
+      res.json({ success: true, message: "User deleted successfully" });
+    } catch (error: any) {
+      console.error(`[3CX API] Error deleting user:`, error);
+      res.status(500).json({ error: error.message || "Failed to delete user" });
+    }
+  });
+
   // Get list of trunks
   app.get("/api/admin/tenant/:tenantId/3cx/trunks", requireAdminAuth, async (req, res) => {
     try {
@@ -4185,6 +4291,190 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error(`[3CX Sync] Error syncing phone numbers:`, error);
       res.status(500).json({ error: error.message || "Failed to sync phone numbers" });
+    }
+  });
+
+  // Create new phone number/DID
+  app.post("/api/admin/tenant/:tenantId/3cx/phone-numbers", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { mfaCode, ...phoneData } = req.body;
+
+      const { token, serverUrl } = await get3CXAccessToken(tenantId, mfaCode as string);
+
+      // Try possible endpoints for creating phone numbers
+      const possibleEndpoints = ['DepartmentPhoneNumbers', 'SystemPhoneNumbers', 'PhoneNumbers'];
+
+      for (const endpoint of possibleEndpoints) {
+        const apiUrl = `${serverUrl}/xapi/v1/${endpoint}`;
+        console.log(`[3CX API] Trying to create phone number at ${apiUrl}`, phoneData);
+
+        try {
+          const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(phoneData),
+            signal: AbortSignal.timeout(30000),
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            console.log(`[3CX API] Phone number created successfully at ${endpoint}`);
+            return res.json(data);
+          } else if (response.status === 404 || response.status === 405) {
+            // Try next endpoint
+            continue;
+          } else {
+            const errorText = await response.text();
+            console.error(`[3CX API] Failed to create phone number at ${endpoint}: ${errorText}`);
+            return res.status(response.status).json({ error: errorText });
+          }
+        } catch (err) {
+          console.log(`[3CX API] Error with ${endpoint}:`, err.message);
+          continue;
+        }
+      }
+
+      throw new Error("No working endpoint found for creating phone numbers");
+    } catch (error: any) {
+      console.error(`[3CX API] Error creating phone number:`, error);
+      res.status(500).json({ error: error.message || "Failed to create phone number" });
+    }
+  });
+
+  // Update phone number/DID
+  app.patch("/api/admin/tenant/:tenantId/3cx/phone-numbers/:numberId", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId, numberId } = req.params;
+      const { mfaCode, ...phoneData } = req.body;
+
+      const { token, serverUrl } = await get3CXAccessToken(tenantId, mfaCode as string);
+
+      // Try possible endpoints
+      const possibleEndpoints = ['DepartmentPhoneNumbers', 'SystemPhoneNumbers', 'PhoneNumbers'];
+
+      for (const endpoint of possibleEndpoints) {
+        const apiUrl = `${serverUrl}/xapi/v1/${endpoint}(${numberId})`;
+        console.log(`[3CX API] Trying to update phone number at ${apiUrl}`, phoneData);
+
+        try {
+          const response = await fetch(apiUrl, {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(phoneData),
+            signal: AbortSignal.timeout(30000),
+          });
+
+          if (response.ok) {
+            const data = response.status === 204 ? { success: true } : await response.json();
+            console.log(`[3CX API] Phone number updated successfully at ${endpoint}`);
+            return res.json(data);
+          } else if (response.status === 404 || response.status === 405) {
+            continue;
+          } else {
+            const errorText = await response.text();
+            console.error(`[3CX API] Failed to update phone number at ${endpoint}: ${errorText}`);
+            return res.status(response.status).json({ error: errorText });
+          }
+        } catch (err) {
+          console.log(`[3CX API] Error with ${endpoint}:`, err.message);
+          continue;
+        }
+      }
+
+      throw new Error("No working endpoint found for updating phone numbers");
+    } catch (error: any) {
+      console.error(`[3CX API] Error updating phone number:`, error);
+      res.status(500).json({ error: error.message || "Failed to update phone number" });
+    }
+  });
+
+  // Delete phone number/DID
+  app.delete("/api/admin/tenant/:tenantId/3cx/phone-numbers/:numberId", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId, numberId } = req.params;
+      const { mfaCode } = req.query;
+
+      const { token, serverUrl } = await get3CXAccessToken(tenantId, mfaCode as string);
+
+      // Try possible endpoints
+      const possibleEndpoints = ['DepartmentPhoneNumbers', 'SystemPhoneNumbers', 'PhoneNumbers'];
+
+      for (const endpoint of possibleEndpoints) {
+        const apiUrl = `${serverUrl}/xapi/v1/${endpoint}(${numberId})`;
+        console.log(`[3CX API] Trying to delete phone number at ${apiUrl}`);
+
+        try {
+          const response = await fetch(apiUrl, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+            signal: AbortSignal.timeout(30000),
+          });
+
+          if (response.ok) {
+            console.log(`[3CX API] Phone number deleted successfully from ${endpoint}`);
+            return res.json({ success: true, message: "Phone number deleted successfully" });
+          } else if (response.status === 404 || response.status === 405) {
+            continue;
+          } else {
+            const errorText = await response.text();
+            console.error(`[3CX API] Failed to delete phone number from ${endpoint}: ${errorText}`);
+            return res.status(response.status).json({ error: errorText });
+          }
+        } catch (err) {
+          console.log(`[3CX API] Error with ${endpoint}:`, err.message);
+          continue;
+        }
+      }
+
+      throw new Error("No working endpoint found for deleting phone numbers");
+    } catch (error: any) {
+      console.error(`[3CX API] Error deleting phone number:`, error);
+      res.status(500).json({ error: error.message || "Failed to delete phone number" });
+    }
+  });
+
+  // Update trunk (for DID assignment)
+  app.patch("/api/admin/tenant/:tenantId/3cx/trunks/:trunkId", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId, trunkId } = req.params;
+      const { mfaCode, ...trunkData } = req.body;
+
+      const { token, serverUrl } = await get3CXAccessToken(tenantId, mfaCode as string);
+      const apiUrl = `${serverUrl}/xapi/v1/Trunks(${trunkId})`;
+
+      console.log(`[3CX API] Updating trunk ${trunkId} at ${apiUrl}`, trunkData);
+
+      const response = await fetch(apiUrl, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(trunkData),
+        signal: AbortSignal.timeout(30000),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[3CX API] Failed to update trunk: ${errorText}`);
+        throw new Error(`Failed to update trunk: ${response.status} - ${errorText}`);
+      }
+
+      const data = response.status === 204 ? { success: true } : await response.json();
+      console.log(`[3CX API] Trunk ${trunkId} updated successfully`);
+      res.json(data);
+    } catch (error: any) {
+      console.error(`[3CX API] Error updating trunk:`, error);
+      res.status(500).json({ error: error.message || "Failed to update trunk" });
     }
   });
 
