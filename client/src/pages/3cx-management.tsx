@@ -1060,9 +1060,9 @@ export default function ThreeCXManagement() {
                     </Button>
                   )}
                   {canFetchData && (
-                    <Button onClick={handleAddPhone} size="sm">
+                    <Button onClick={handleAddPhone} size="sm" disabled>
                       <PhoneIncoming className="w-4 h-4 mr-2" />
-                      Add DID
+                      Add DID (Future)
                     </Button>
                   )}
                 </div>
