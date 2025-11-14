@@ -16,7 +16,7 @@ import {
 import { getGraphClient, getTeamsVoiceUsers, getVoiceRoutingPolicies, assignPhoneNumberAndPolicy, validateTenantPermissions } from "./graph";
 import { insertCustomerTenantSchema, insertAuditLogSchema, insertConfigurationProfileSchema, insertTenantPowershellCredentialsSchema, insertPhoneNumberInventorySchema, phoneNumberInventory, type InsertOperatorConfig, type InsertCustomerTenant } from "@shared/schema";
 import { encrypt, decrypt } from "./encryption";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { eq, and } from "drizzle-orm";
 import {
   testPowerShellConnectivity,
@@ -4922,7 +4922,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Delete credentials from database
-      await sql`DELETE FROM connectwise_credentials WHERE tenant_id = ${tenantId}`;
+      await pool.query(
+        `DELETE FROM connectwise_credentials WHERE tenant_id = $1`,
+        [tenantId]
+      );
 
       console.log(`[ConnectWise] Credentials deleted for tenant ${tenantId}`);
 

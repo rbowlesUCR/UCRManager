@@ -6,10 +6,8 @@
  * API Documentation: https://developer.connectwise.com/Products/Manage/REST
  */
 
-import postgres from 'postgres';
+import { pool } from './db.js';
 import { decrypt, encrypt } from './encryption.js';
-
-const sql = postgres(process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/ucrmanager');
 
 // ConnectWise API credentials interface
 export interface ConnectWiseCredentials {
@@ -99,8 +97,8 @@ export interface ConnectWiseNote {
  */
 export async function getConnectWiseCredentials(tenantId: string): Promise<ConnectWiseCredentials & ConnectWiseConfig | null> {
   try {
-    const result = await sql`
-      SELECT
+    const result = await pool.query(
+      `SELECT
         base_url,
         company_id,
         public_key,
@@ -110,14 +108,15 @@ export async function getConnectWiseCredentials(tenantId: string): Promise<Conne
         auto_update_status,
         default_status_id
       FROM connectwise_credentials
-      WHERE tenant_id = ${tenantId}
-    `;
+      WHERE tenant_id = $1`,
+      [tenantId]
+    );
 
-    if (result.length === 0) {
+    if (result.rows.length === 0) {
       return null;
     }
 
-    const cred = result[0];
+    const cred = result.rows[0];
 
     // Decrypt sensitive fields
     const publicKey = decrypt(cred.public_key);
@@ -154,8 +153,8 @@ export async function storeConnectWiseCredentials(
     const encryptedPrivateKey = encrypt(credentials.privateKey);
     const encryptedClientId = encrypt(credentials.clientId);
 
-    await sql`
-      INSERT INTO connectwise_credentials (
+    await pool.query(
+      `INSERT INTO connectwise_credentials (
         tenant_id,
         base_url,
         company_id,
@@ -168,17 +167,7 @@ export async function storeConnectWiseCredentials(
         created_by,
         updated_by
       ) VALUES (
-        ${tenantId},
-        ${credentials.baseUrl},
-        ${credentials.companyId},
-        ${encryptedPublicKey},
-        ${encryptedPrivateKey},
-        ${encryptedClientId},
-        ${credentials.defaultTimeMinutes || 15},
-        ${credentials.autoUpdateStatus || false},
-        ${credentials.defaultStatusId || null},
-        ${adminUserId},
-        ${adminUserId}
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
       )
       ON CONFLICT (tenant_id) DO UPDATE SET
         base_url = EXCLUDED.base_url,
@@ -190,8 +179,21 @@ export async function storeConnectWiseCredentials(
         auto_update_status = EXCLUDED.auto_update_status,
         default_status_id = EXCLUDED.default_status_id,
         updated_by = EXCLUDED.updated_by,
-        updated_at = NOW()
-    `;
+        updated_at = NOW()`,
+      [
+        tenantId,
+        credentials.baseUrl,
+        credentials.companyId,
+        encryptedPublicKey,
+        encryptedPrivateKey,
+        encryptedClientId,
+        credentials.defaultTimeMinutes || 15,
+        credentials.autoUpdateStatus || false,
+        credentials.defaultStatusId || null,
+        adminUserId,
+        adminUserId
+      ]
+    );
 
     console.log(`[ConnectWise] Credentials stored for tenant ${tenantId}`);
   } catch (error) {
@@ -489,13 +491,14 @@ export async function updateTicketStatus(
 export async function isConnectWiseEnabled(tenantId: string): Promise<boolean> {
   try {
     // Check if feature flag is enabled globally
-    const featureFlagResult = await sql`
-      SELECT is_enabled
+    const featureFlagResult = await pool.query(
+      `SELECT is_enabled
       FROM feature_flags
-      WHERE feature_key = 'connectwise_integration'
-    `;
+      WHERE feature_key = $1`,
+      ['connectwise_integration']
+    );
 
-    if (featureFlagResult.length === 0 || !featureFlagResult[0].is_enabled) {
+    if (featureFlagResult.rows.length === 0 || !featureFlagResult.rows[0].is_enabled) {
       return false;
     }
 
