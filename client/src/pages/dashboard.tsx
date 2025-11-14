@@ -43,6 +43,9 @@ export default function Dashboard() {
   const [showPhonePickerDialog, setShowPhonePickerDialog] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<any>(null);
+  const [cwMemberIdentifier, setCwMemberIdentifier] = useState("");
+  const [cwTimeMinutes, setCwTimeMinutes] = useState(30);
+  const [cwStatusId, setCwStatusId] = useState<number | null>(null);
 
   // Fetch Teams users when tenant is selected
   const { data: teamsUsers, isLoading: isLoadingUsers } = useQuery({
@@ -148,6 +151,22 @@ export default function Dashboard() {
 
   // Check if ConnectWise integration is enabled
   const isConnectWiseEnabled = connectWiseFlag?.isEnabled ?? false;
+
+  // Fetch ConnectWise statuses when tenant is selected and ConnectWise is enabled
+  const { data: cwStatuses } = useQuery({
+    queryKey: [`/api/admin/tenant/${selectedTenant?.id}/connectwise/statuses`],
+    enabled: !!selectedTenant && isConnectWiseEnabled,
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/tenant/${selectedTenant?.id}/connectwise/statuses`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        return { statuses: [] };
+      }
+      const data = await res.json();
+      return data;
+    },
+  });
 
   // Fetch current voice configuration for selected user via PowerShell
   const { data: userVoiceConfig, isLoading: isLoadingVoiceConfig } = useQuery<UserVoiceConfig>({
@@ -304,11 +323,24 @@ export default function Dashboard() {
 
           console.log("[Dashboard] Logging change to ConnectWise ticket:", selectedTicketId);
 
-          const cwResponse = await apiRequest("POST", `/api/admin/tenant/${selectedTenant.id}/connectwise/log-change`, {
+          const payload: any = {
             ticketId: selectedTicketId,
             noteText,
-            memberIdentifier: userJustAssigned.userPrincipalName, // Use Teams UPN as member identifier
-          });
+            hours: cwTimeMinutes / 60, // Convert minutes to hours
+          };
+
+          // Add member identifier if specified (otherwise backend will use default)
+          if (cwMemberIdentifier) {
+            payload.memberIdentifier = cwMemberIdentifier;
+          }
+
+          // Add status update if specified
+          if (cwStatusId) {
+            payload.updateStatus = true;
+            payload.statusId = cwStatusId;
+          }
+
+          const cwResponse = await apiRequest("POST", `/api/admin/tenant/${selectedTenant.id}/connectwise/log-change`, payload);
 
           const cwResult = await cwResponse.json();
 
@@ -316,7 +348,7 @@ export default function Dashboard() {
             console.log("[Dashboard] Change logged to ConnectWise successfully");
             toast({
               title: "Logged to ConnectWise",
-              description: `Change logged to ticket #${selectedTicketId}`,
+              description: `Change logged to ticket #${selectedTicketId} (${cwTimeMinutes} min)`,
             });
           }
         } catch (error: any) {
@@ -358,6 +390,9 @@ export default function Dashboard() {
         setAssignedUser(null);
         setSelectedTicketId(null);
         setSelectedTicket(null);
+        setCwMemberIdentifier("");
+        setCwTimeMinutes(30);
+        setCwStatusId(null);
       }, 1500);
     },
     onError: (error: Error) => {
@@ -534,6 +569,9 @@ export default function Dashboard() {
     setPhoneValidation(null);
     setSelectedTicketId(null);
     setSelectedTicket(null);
+    setCwMemberIdentifier("");
+    setCwTimeMinutes(30);
+    setCwStatusId(null);
   };
 
   const handleApplyProfile = (profile: ConfigurationProfile) => {
@@ -900,24 +938,99 @@ export default function Dashboard() {
 
             {/* ConnectWise Ticket (Optional) */}
             {isConnectWiseEnabled && selectedTenant && (
-              <div className="space-y-2">
-                <Label className="text-sm font-semibold">
-                  ConnectWise Ticket (Optional)
-                </Label>
-                <ConnectWiseTicketSearch
-                  tenantId={selectedTenant.id}
-                  value={selectedTicketId}
-                  onSelect={(ticketId, ticket) => {
-                    setSelectedTicketId(ticketId);
-                    setSelectedTicket(ticket);
-                  }}
-                  placeholder="Link to a ConnectWise ticket..."
-                  disabled={!selectedUser}
-                />
-                {selectedTicket && (
-                  <p className="text-xs text-muted-foreground">
-                    Changes will be logged to ticket #{selectedTicket.id} with default time entry
-                  </p>
+              <div className="space-y-4 rounded-lg border p-4 bg-muted/30">
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">
+                    ConnectWise Ticket (Optional)
+                  </Label>
+                  <ConnectWiseTicketSearch
+                    tenantId={selectedTenant.id}
+                    value={selectedTicketId}
+                    onSelect={(ticketId, ticket) => {
+                      setSelectedTicketId(ticketId);
+                      setSelectedTicket(ticket);
+                    }}
+                    placeholder="Link to a ConnectWise ticket..."
+                    disabled={!selectedUser}
+                  />
+                  {selectedTicket && (
+                    <p className="text-xs text-muted-foreground">
+                      Ticket #{selectedTicket.id}: {selectedTicket.summary}
+                    </p>
+                  )}
+                </div>
+
+                {/* ConnectWise Override Options (shown when ticket is selected) */}
+                {selectedTicketId && (
+                  <div className="space-y-3 pt-2 border-t">
+                    <p className="text-xs font-semibold text-muted-foreground">Time Entry Options</p>
+
+                    {/* Member Identifier Override */}
+                    <div className="space-y-2">
+                      <Label htmlFor="cw-member" className="text-xs">
+                        Member Username (Optional)
+                      </Label>
+                      <Input
+                        id="cw-member"
+                        type="text"
+                        placeholder="Leave blank to use default"
+                        value={cwMemberIdentifier}
+                        onChange={(e) => setCwMemberIdentifier(e.target.value)}
+                        className="h-9 text-sm"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Override the default ConnectWise member for this entry
+                      </p>
+                    </div>
+
+                    {/* Time Entry Dropdown */}
+                    <div className="space-y-2">
+                      <Label htmlFor="cw-time" className="text-xs">
+                        Time to Log (minutes)
+                      </Label>
+                      <Select
+                        value={cwTimeMinutes.toString()}
+                        onValueChange={(val) => setCwTimeMinutes(parseInt(val))}
+                      >
+                        <SelectTrigger className="h-9 text-sm" id="cw-time">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="15">15 minutes</SelectItem>
+                          <SelectItem value="30">30 minutes</SelectItem>
+                          <SelectItem value="45">45 minutes</SelectItem>
+                          <SelectItem value="60">1 hour</SelectItem>
+                          <SelectItem value="90">1.5 hours</SelectItem>
+                          <SelectItem value="120">2 hours</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Status Dropdown */}
+                    {cwStatuses && cwStatuses.statuses && cwStatuses.statuses.length > 0 && (
+                      <div className="space-y-2">
+                        <Label htmlFor="cw-status" className="text-xs">
+                          Update Ticket Status (Optional)
+                        </Label>
+                        <Select
+                          value={cwStatusId?.toString() || ""}
+                          onValueChange={(val) => setCwStatusId(val ? parseInt(val) : null)}
+                        >
+                          <SelectTrigger className="h-9 text-sm" id="cw-status">
+                            <SelectValue placeholder="Don't change status" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="">Don't change status</SelectItem>
+                            {cwStatuses.statuses.map((status: any) => (
+                              <SelectItem key={status.id} value={status.id.toString()}>
+                                {status.name} ({status.boardName})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             )}
