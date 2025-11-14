@@ -169,9 +169,18 @@ export default function Dashboard() {
         return { statuses: [] };
       }
       const data = await res.json();
+      console.log('[Dashboard] ConnectWise statuses received:', data);
       return data;
     },
   });
+
+  // Debug log when statuses change
+  useEffect(() => {
+    if (selectedTicket?.id) {
+      console.log('[Dashboard] Selected ticket:', selectedTicket);
+      console.log('[Dashboard] CW Statuses data:', cwStatuses);
+    }
+  }, [selectedTicket, cwStatuses]);
 
   // Fetch current voice configuration for selected user via PowerShell
   const { data: userVoiceConfig, isLoading: isLoadingVoiceConfig } = useQuery<UserVoiceConfig>({
@@ -952,8 +961,14 @@ export default function Dashboard() {
                     tenantId={selectedTenant.id}
                     value={selectedTicketId}
                     onSelect={(ticketId, ticket) => {
-                      setSelectedTicketId(ticketId);
-                      setSelectedTicket(ticket);
+                      try {
+                        console.log('[Dashboard] onSelect called with:', { ticketId, ticket });
+                        setSelectedTicketId(ticketId);
+                        setSelectedTicket(ticket);
+                        console.log('[Dashboard] State updated successfully');
+                      } catch (error) {
+                        console.error('[Dashboard] Error in onSelect:', error);
+                      }
                     }}
                     placeholder="Link to a ConnectWise ticket..."
                     disabled={!selectedUser}
@@ -1018,14 +1033,14 @@ export default function Dashboard() {
                           Update Ticket Status (Optional)
                         </Label>
                         <Select
-                          value={cwStatusId?.toString() || ""}
-                          onValueChange={(val) => setCwStatusId(val ? parseInt(val) : null)}
+                          value={cwStatusId?.toString() || "0"}
+                          onValueChange={(val) => setCwStatusId(val === "0" ? null : parseInt(val))}
                         >
                           <SelectTrigger className="h-9 text-sm" id="cw-status">
                             <SelectValue placeholder="Don't change status" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">Don't change status</SelectItem>
+                            <SelectItem value="0">Don't change status</SelectItem>
                             {cwStatuses?.statuses?.map((status: any) => (
                               <SelectItem key={status.id} value={status.id.toString()}>
                                 {status.name}

@@ -4704,6 +4704,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Fetch statuses for the ticket's board
       const statuses = await getTicketStatuses(tenantId, boardId);
 
+      console.log(`[ConnectWise API] Returning ${statuses.length} statuses for board ${boardId}`);
       res.json({ statuses });
     } catch (error: any) {
       console.error("[ConnectWise API] Error fetching ticket statuses:", error);
