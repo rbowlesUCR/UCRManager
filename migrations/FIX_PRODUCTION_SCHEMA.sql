@@ -1,0 +1,144 @@
+-- Fix Production Schema Mismatch
+-- Date: November 14, 2025
+-- Purpose: Correct schema to match what the application expects
+
+BEGIN;
+
+-- =============================================================================
+-- FIX AUDIT_LOGS TABLE
+-- =============================================================================
+
+-- Drop the incorrect audit_logs table and recreate with correct schema
+DROP TABLE IF EXISTS audit_logs CASCADE;
+
+CREATE TABLE audit_logs (
+    id VARCHAR DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    operator_email TEXT NOT NULL,
+    operator_name TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    tenant_name TEXT NOT NULL,
+    target_user_upn TEXT NOT NULL,
+    target_user_name TEXT NOT NULL,
+    target_user_id TEXT,
+    change_type TEXT NOT NULL,
+    change_description TEXT NOT NULL,
+    phone_number TEXT,
+    routing_policy TEXT,
+    previous_phone_number TEXT,
+    previous_routing_policy TEXT,
+    status TEXT DEFAULT 'success' NOT NULL,
+    error_message TEXT,
+    timestamp TIMESTAMP DEFAULT NOW() NOT NULL
+);
+
+-- =============================================================================
+-- FIX CUSTOMER_TENANTS TABLE
+-- =============================================================================
+
+-- Drop and recreate customer_tenants with correct schema
+DROP TABLE IF EXISTS customer_tenants CASCADE;
+
+CREATE TABLE customer_tenants (
+    id VARCHAR DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    tenant_name TEXT NOT NULL,
+    app_registration_id TEXT,
+    app_registration_secret TEXT,
+    is_active BOOLEAN DEFAULT TRUE NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+
+-- =============================================================================
+-- FIX OPERATOR_USERS TABLE
+-- =============================================================================
+
+-- Drop and recreate operator_users with correct schema
+DROP TABLE IF EXISTS operator_users CASCADE;
+
+CREATE TABLE operator_users (
+    id VARCHAR DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    azure_user_id TEXT NOT NULL,
+    email TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    role TEXT DEFAULT 'user' NOT NULL,
+    is_active BOOLEAN DEFAULT TRUE NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+
+-- =============================================================================
+-- FIX CONFIGURATION_PROFILES TABLE
+-- =============================================================================
+
+-- Drop and recreate configuration_profiles with correct schema
+DROP TABLE IF EXISTS configuration_profiles CASCADE;
+
+CREATE TABLE configuration_profiles (
+    id VARCHAR DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    profile_name TEXT NOT NULL,
+    phone_number_prefix TEXT NOT NULL,
+    default_routing_policy TEXT NOT NULL,
+    description TEXT,
+    created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+
+-- =============================================================================
+-- FIX OPERATOR_CONFIG TABLE
+-- =============================================================================
+
+-- Drop and recreate operator_config with correct schema
+DROP TABLE IF EXISTS operator_config CASCADE;
+
+CREATE TABLE operator_config (
+    id VARCHAR DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    azure_tenant_id TEXT NOT NULL,
+    azure_client_id TEXT NOT NULL,
+    azure_client_secret TEXT NOT NULL,
+    redirect_uri TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+
+-- =============================================================================
+-- FIX TENANT_POWERSHELL_CREDENTIALS TABLE
+-- =============================================================================
+
+-- Drop and recreate tenant_powershell_credentials with correct schema
+DROP TABLE IF EXISTS tenant_powershell_credentials CASCADE;
+
+CREATE TABLE tenant_powershell_credentials (
+    id VARCHAR DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    tenant_id VARCHAR NOT NULL,
+    username TEXT NOT NULL,
+    encrypted_password TEXT NOT NULL,
+    description TEXT,
+    is_active BOOLEAN DEFAULT TRUE NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+
+-- =============================================================================
+-- VERIFY ADMIN_USERS TABLE EXISTS
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS admin_users (
+    id VARCHAR DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    username TEXT NOT NULL,
+    password TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+
+COMMIT;
+
+-- Verification queries
+SELECT 'audit_logs columns:' as info;
+SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'audit_logs' ORDER BY ordinal_position;
+
+SELECT 'customer_tenants columns:' as info;
+SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'customer_tenants' ORDER BY ordinal_position;
+
+SELECT 'operator_users columns:' as info;
+SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'operator_users' ORDER BY ordinal_position;
