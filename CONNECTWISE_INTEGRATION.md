@@ -1,8 +1,8 @@
 # ConnectWise PSA Integration
 
 **Feature Branch**: `feature/connectwise-integration`
-**Date**: November 13, 2025
-**Status**: In Progress
+**Date**: November 14, 2025
+**Status**: ✅ Complete - Ready for Testing
 
 ---
 
@@ -87,9 +87,9 @@ All endpoints require admin authentication (`requireAdminAuth`).
 
 #### Credentials Management
 
-- `GET /api/admin/tenant/:tenantId/connectwise/credentials` - Get credentials (non-sensitive)
-- `POST /api/admin/tenant/:tenantId/connectwise/credentials` - Store/update credentials
-- `GET /api/admin/tenant/:tenantId/connectwise/enabled` - Check if enabled
+- `GET /api/admin/tenant/:tenantId/connectwise-credentials` - Get credentials (non-sensitive)
+- `POST /api/admin/tenant/:tenantId/connectwise-credentials` - Store/update credentials
+- `DELETE /api/admin/tenant/:tenantId/connectwise-credentials` - Delete credentials
 
 #### Ticket Operations
 
@@ -99,13 +99,17 @@ All endpoints require admin authentication (`requireAdminAuth`).
 - `POST /api/admin/tenant/:tenantId/connectwise/tickets/:ticketId/time` - Add time entry
 - `PATCH /api/admin/tenant/:tenantId/connectwise/tickets/:ticketId/status` - Update status
 
-#### Combined Operation
+#### Combined Operation (Ticket Optional)
 
-- `POST /api/admin/tenant/:tenantId/connectwise/tickets/:ticketId/log-change` - Log change (note + time + optional status)
+- `POST /api/admin/tenant/:tenantId/connectwise/log-change` - Log change (note + time + optional status)
+  - **Note**: ticketId is now in the request body (optional)
+  - If ticketId is provided, logs to ConnectWise
+  - If ticketId is null/missing, change proceeds without logging
 
 **Payload**:
 ```json
 {
+  "ticketId": 12345,
   "noteText": "Updated user voice configuration",
   "memberIdentifier": "operator@company.com",
   "hours": 0.25,
@@ -113,6 +117,8 @@ All endpoints require admin authentication (`requireAdminAuth`).
   "statusId": 123
 }
 ```
+
+**Note**: ticketId is optional. If omitted, change is logged locally but not to ConnectWise.
 
 **Actions**:
 1. Adds note to ticket
@@ -151,26 +157,28 @@ Currently using: `v4_6_release/apis/3.0`
 
 ## UI Integration Points
 
-### Planned Integrations
+### Completed Integrations ✅
 
-1. **Voice Configuration Page** (`client/src/pages/voice-configuration.tsx`)
-   - Add "CW Ticket #" field
-   - Ticket search/autocomplete
-   - Auto-log changes when saving
+1. **Voice Configuration Page** (`client/src/pages/dashboard.tsx`)
+   - ✅ "ConnectWise Ticket (Optional)" field added
+   - ✅ Ticket search/autocomplete working
+   - ✅ Auto-log changes when saving voice configuration
+   - ✅ Toast notifications for success/failure
 
-2. **3CX Management Page** (`client/src/pages/3cx-management.tsx`)
-   - Add "CW Ticket #" field to user/DID forms
-   - Auto-log CRUD operations
+2. **Admin Customer Tenants** (`client/src/pages/admin-customer-tenants.tsx`)
+   - ✅ ConnectWise credentials button (ticket icon) in actions
+   - ✅ ConnectWise credentials dialog with full form
 
-3. **Admin Settings** (New page or existing features page)
-   - ConnectWise credentials form
-   - Configuration options (default time, auto-status, etc.)
+3. **Admin Documentation** (`client/src/pages/admin-documentation.tsx`)
+   - ✅ "ConnectWise Setup" tab with complete guide
+   - ✅ Step-by-step instructions for API setup
+   - ✅ Troubleshooting and reference links
 
-### UI Components Needed
+### UI Components Implemented
 
-- **TicketSearch** - Autocomplete ticket search component
-- **ConnectWiseConfig** - Credentials management form
-- **TicketDisplay** - Show linked ticket info
+- **ConnectWiseTicketSearch** ✅ - Autocomplete ticket search component with debouncing
+- **AdminConnectWiseCredentials** ✅ - Credentials management form with encryption
+- **TicketDisplay** ✅ - Show linked ticket info with status badges
 
 ---
 
@@ -327,20 +335,19 @@ git branch -D feature/connectwise-integration
 - [x] Database schema created (`connectwise_credentials` table)
 - [x] ConnectWise API client module (`server/connectwise.ts`)
 - [x] Backend API endpoints (routes.ts)
+- [x] Admin UI for credentials management (`admin-connectwise-credentials.tsx`)
+- [x] Voice configuration integration (dashboard.tsx)
+- [x] Comprehensive setup documentation (admin-documentation.tsx)
+- [x] Customer tenant credentials management (admin-customer-tenants.tsx)
+- [x] Optional ticket linking (changes work with or without ConnectWise)
 - [x] Build successful (no compilation errors)
-- [x] Documentation created
-
-### 🚧 In Progress
-
-- [ ] Admin UI for credentials management
-- [ ] Voice configuration integration
-- [ ] 3CX management integration
+- [x] Deployed to server and running
 
 ### 📋 Pending
 
 - [ ] Testing with live ConnectWise instance
-- [ ] Error handling refinement
-- [ ] User guide/documentation
+- [ ] Operator training on setup and usage
+- [ ] Production deployment validation
 
 ---
 
@@ -349,18 +356,25 @@ git branch -D feature/connectwise-integration
 ### New Files
 
 - `migrations/0006_connectwise_integration.sql` - Database migration
-- `server/connectwise.ts` - ConnectWise API client module (517 lines)
+- `server/connectwise.ts` - ConnectWise API client module (510 lines)
+- `client/src/components/admin-connectwise-credentials.tsx` - Credentials management UI (441 lines)
+- `client/src/components/connectwise-ticket-search.tsx` - Ticket search autocomplete (253 lines)
 - `CONNECTWISE_INTEGRATION.md` - This documentation
 
 ### Modified Files
 
-- `server/routes.ts` - Added CW API endpoints (+230 lines)
+- `server/routes.ts` - Added CW credentials and ticket API endpoints (+250 lines)
+- `client/src/pages/dashboard.tsx` - Added ticket search and auto-logging (+150 lines)
+- `client/src/pages/admin-documentation.tsx` - Added ConnectWise setup tab (+230 lines)
+- `client/src/pages/admin-customer-tenants.tsx` - Added CW credentials button/dialog (+50 lines)
+- `client/src/components/user-search-combobox.tsx` - Added disabled prop support
+- `client/src/components/phone-number-picker-dialog.tsx` - Fixed apply-sync endpoint
 
 ### Build Impact
 
-- **Server bundle**: 302 KB → 319.9 KB (+17.9 KB)
-- **Client bundle**: No change (834 KB)
-- **Build time**: ~43 seconds
+- **Server bundle**: 302.2 KB (includes ConnectWise module)
+- **Client bundle**: 834.08 KB (includes credentials UI and ticket search)
+- **Build time**: ~2 minutes
 
 ---
 
@@ -443,6 +457,7 @@ pm2 logs ucrmanager --lines 100 | grep -i connectwise
 
 ---
 
-**Last Updated**: November 13, 2025
+**Last Updated**: November 14, 2025
 **Branch**: feature/connectwise-integration
-**Next Steps**: Build admin UI components
+**Status**: ✅ Complete - Ready for Testing
+**Next Steps**: Test with live ConnectWise instance and train operators
