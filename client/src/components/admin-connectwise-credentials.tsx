@@ -18,6 +18,7 @@ interface ConnectWiseCredentials {
   defaultTimeMinutes: number;
   autoUpdateStatus: boolean;
   defaultStatusId: number | null;
+  defaultMemberIdentifier: string | null;
   createdAt: string;
   updatedAt: string;
   createdBy: string;
@@ -35,9 +36,10 @@ export function AdminConnectWiseCredentials({ tenantId, tenantName }: AdminConne
   const [publicKey, setPublicKey] = useState("");
   const [privateKey, setPrivateKey] = useState("");
   const [clientId, setClientId] = useState("");
-  const [defaultTimeMinutes, setDefaultTimeMinutes] = useState(15);
+  const [defaultTimeMinutes, setDefaultTimeMinutes] = useState(30);
   const [autoUpdateStatus, setAutoUpdateStatus] = useState(false);
   const [defaultStatusId, setDefaultStatusId] = useState("");
+  const [defaultMemberIdentifier, setDefaultMemberIdentifier] = useState("");
   const [showPublicKey, setShowPublicKey] = useState(false);
   const [showPrivateKey, setShowPrivateKey] = useState(false);
   const [showClientId, setShowClientId] = useState(false);
@@ -66,9 +68,10 @@ export function AdminConnectWiseCredentials({ tenantId, tenantName }: AdminConne
     if (credentials) {
       setBaseUrl(credentials.baseUrl || "");
       setCompanyId(credentials.companyId || "");
-      setDefaultTimeMinutes(credentials.defaultTimeMinutes || 15);
+      setDefaultTimeMinutes(credentials.defaultTimeMinutes || 30);
       setAutoUpdateStatus(credentials.autoUpdateStatus || false);
       setDefaultStatusId(credentials.defaultStatusId?.toString() || "");
+      setDefaultMemberIdentifier(credentials.defaultMemberIdentifier || "");
       // Don't populate sensitive keys for security
       setPublicKey("");
       setPrivateKey("");
@@ -79,9 +82,10 @@ export function AdminConnectWiseCredentials({ tenantId, tenantName }: AdminConne
       setPublicKey("");
       setPrivateKey("");
       setClientId("");
-      setDefaultTimeMinutes(15);
+      setDefaultTimeMinutes(30);
       setAutoUpdateStatus(false);
       setDefaultStatusId("");
+      setDefaultMemberIdentifier("");
     }
   }, [credentials]);
 
@@ -97,6 +101,7 @@ export function AdminConnectWiseCredentials({ tenantId, tenantName }: AdminConne
         defaultTimeMinutes,
         autoUpdateStatus,
         defaultStatusId: defaultStatusId ? parseInt(defaultStatusId) : null,
+        defaultMemberIdentifier: defaultMemberIdentifier || null,
       };
 
       return await apiRequest("POST", `/api/admin/tenant/${tenantId}/connectwise-credentials`, payload);
@@ -392,6 +397,23 @@ export function AdminConnectWiseCredentials({ tenantId, tenantName }: AdminConne
             <div className="border-t pt-6">
               <h3 className="text-sm font-semibold mb-4">Default Time Entry Settings</h3>
 
+              {/* Default Member Identifier */}
+              <div className="space-y-2 mb-4">
+                <Label htmlFor="defaultMemberIdentifier">
+                  Default Member Identifier
+                </Label>
+                <Input
+                  id="defaultMemberIdentifier"
+                  type="text"
+                  placeholder="e.g., jsmith or jsmith@company.com"
+                  value={defaultMemberIdentifier}
+                  onChange={(e) => setDefaultMemberIdentifier(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  ConnectWise member username for time entries (can be overridden per-operation)
+                </p>
+              </div>
+
               {/* Default Time Minutes */}
               <div className="space-y-2 mb-4">
                 <Label htmlFor="defaultTimeMinutes">
@@ -403,7 +425,7 @@ export function AdminConnectWiseCredentials({ tenantId, tenantName }: AdminConne
                   min="1"
                   max="480"
                   value={defaultTimeMinutes}
-                  onChange={(e) => setDefaultTimeMinutes(parseInt(e.target.value) || 15)}
+                  onChange={(e) => setDefaultTimeMinutes(parseInt(e.target.value) || 30)}
                 />
                 <p className="text-xs text-muted-foreground">
                   Default time logged for each voice configuration change (1-480 minutes)
