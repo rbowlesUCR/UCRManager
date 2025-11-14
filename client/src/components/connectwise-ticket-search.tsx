@@ -28,7 +28,7 @@ interface ConnectWiseTicket {
   summary: string;
   status: string;
   company: string;
-  board: string;
+  board: string | { id: number; name: string }; // Can be string from search or object from getTicket
 }
 
 interface ConnectWiseTicketSearchProps {
@@ -69,7 +69,7 @@ async function getTicket(tenantId: string, ticketId: number): Promise<ConnectWis
       summary: data.ticket.summary,
       status: data.ticket.status?.name || 'Unknown',
       company: data.ticket.company?.name || 'Unknown',
-      board: data.ticket.board?.name || 'Unknown',
+      board: data.ticket.board ? { id: data.ticket.board.id, name: data.ticket.board.name } : 'Unknown',
     } : null;
   } catch (error) {
     console.error("Error fetching ticket:", error);
@@ -200,7 +200,7 @@ export function ConnectWiseTicketSearch({
                         <span className="px-2 py-0.5 bg-secondary rounded-sm">{ticket.status}</span>
                         <span>{ticket.company}</span>
                         <span>•</span>
-                        <span>{ticket.board}</span>
+                        <span>{typeof ticket.board === 'string' ? ticket.board : ticket.board.name}</span>
                       </div>
                     </div>
                   </CommandItem>
