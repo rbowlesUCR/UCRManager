@@ -107,7 +107,15 @@ export function PhoneNumberPickerDialog({
   // Mutation to commit sync changes
   const commitMutation = useMutation({
     mutationFn: async (changes: any) => {
-      return await apiRequest("POST", `/api/numbers/apply-sync/${tenant!.id}`, changes);
+      // Transform changes to match the API format: { tenantId, selectedChanges: [...] }
+      const allChanges = [
+        ...changes.toAdd,
+        ...changes.toUpdate.map((c: any) => ({ ...c, action: 'update' })),
+      ];
+      return await apiRequest("POST", "/api/numbers/apply-sync", {
+        tenantId: tenant!.id,
+        selectedChanges: allChanges,
+      });
     },
     onSuccess: () => {
       toast({

@@ -37,6 +37,8 @@ export default function Dashboard() {
   const [showPowerShellModal, setShowPowerShellModal] = useState(false);
   const [powershellPolicies, setPowershellPolicies] = useState<VoiceRoutingPolicy[] | null>(null);
   const [activeTab, setActiveTab] = useState("configuration");
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [assignedUser, setAssignedUser] = useState<TeamsUser | null>(null); // Track user being assigned
   const [showPhonePickerDialog, setShowPhonePickerDialog] = useState(false);
 
   // Fetch Teams users when tenant is selected
@@ -226,6 +228,13 @@ export default function Dashboard() {
         description: "Phone number and routing policy have been assigned successfully",
       });
 
+      // Store the user we just assigned before clearing form
+      const userJustAssigned = selectedUser;
+      setAssignedUser(userJustAssigned);
+
+      // Set syncing state to true to prevent user selection during sync
+      setIsSyncing(true);
+
       // Automatically sync numbers from Teams to update inventory
       if (selectedTenant) {
         try {
@@ -262,21 +271,39 @@ export default function Dashboard() {
         } catch (error: any) {
           console.error("[Dashboard] Auto-sync error:", error);
           // Don't show error toast - silent failure for background sync
+        } finally {
+          // Sync complete, reset syncing state
+          setIsSyncing(false);
         }
       }
 
-      // Reset form
-      setSelectedUser(null);
-      setPhoneNumber("");
-      setSelectedPolicy("");
-      setPhoneValidation(null);
-      // Refetch users and voice config to get updated data
+      // Refetch users to get updated data
       queryClient.invalidateQueries({ queryKey: ["/api/teams/users", selectedTenant?.id] });
-      if (selectedUser) {
-        queryClient.invalidateQueries({ queryKey: ["/api/teams/user-voice-config", selectedTenant?.id, selectedUser.userPrincipalName] });
+
+      // If we have a user that was just assigned, refetch their voice config
+      if (userJustAssigned) {
+        await queryClient.invalidateQueries({
+          queryKey: ["/api/teams/user-voice-config", selectedTenant?.id, userJustAssigned.userPrincipalName]
+        });
+        // Wait a moment for config to propagate, then refetch
+        setTimeout(() => {
+          queryClient.refetchQueries({
+            queryKey: ["/api/teams/user-voice-config", selectedTenant?.id, userJustAssigned.userPrincipalName]
+          });
+        }, 1000);
       }
+
       // Also invalidate number inventory queries so Number Management updates
       queryClient.invalidateQueries({ queryKey: ["/api/numbers", selectedTenant?.id] });
+
+      // Reset form after a brief delay to allow user to see the syncing complete
+      setTimeout(() => {
+        setSelectedUser(null);
+        setPhoneNumber("");
+        setSelectedPolicy("");
+        setPhoneValidation(null);
+        setAssignedUser(null);
+      }, 1500);
     },
     onError: (error: Error) => {
       toast({
@@ -561,11 +588,27 @@ export default function Dashboard() {
                 isLoading={isLoadingUsers}
                 selectedUser={selectedUser}
                 onSelectUser={setSelectedUser}
+                disabled={assignVoiceMutation.isPending || isSyncing}
               />
               {selectedUser && (
                 <p className="text-xs text-muted-foreground">
                   {selectedUser.mail || selectedUser.userPrincipalName}
                 </p>
+              )}
+              {/* Show processing indicator */}
+              {(assignVoiceMutation.isPending || isSyncing) && assignedUser && (
+                <div className="rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950 dark:border-amber-800 p-3">
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-amber-600 dark:text-amber-400" />
+                    <p className="text-sm text-amber-700 dark:text-amber-300">
+                      {assignVoiceMutation.isPending ? (
+                        <>Assigning configuration to {assignedUser.displayName}...</>
+                      ) : (
+                        <>Syncing configuration updates...</>
+                      )}
+                    </p>
+                  </div>
+                </div>
               )}
 
               {/* Current Voice Configuration */}
@@ -744,7 +787,7 @@ export default function Dashboard() {
                   type="button"
                   variant={isManualPhoneEntryEnabled ? "outline" : "default"}
                   onClick={() => setShowPhonePickerDialog(true)}
-                  disabled={!selectedUser || !selectedTenant}
+                  disabled={!selectedUser || !selectedTenant || assignVoiceMutation.isPending || isSyncing}
                   className="h-11 min-w-[160px]"
                   title="Select from available numbers"
                 >

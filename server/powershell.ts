@@ -192,10 +192,23 @@ $credential = New-Object System.Management.Automation.PSCredential($username, $p
           const exitCode = code ?? -1;
           const success = exitCode === 0;
 
+          // If execution failed, provide error message from stderr or a default message
+          let errorMessage: string | undefined = undefined;
+          if (!success) {
+            if (stderr && stderr.trim()) {
+              errorMessage = stderr;
+            } else if (stdout && stdout.trim()) {
+              // Sometimes PowerShell errors are written to stdout
+              errorMessage = stdout;
+            } else {
+              errorMessage = `PowerShell script failed with exit code ${exitCode}`;
+            }
+          }
+
           resolve({
             success,
             output: stdout,
-            error: stderr || undefined,
+            error: errorMessage,
             exitCode,
           });
         }
