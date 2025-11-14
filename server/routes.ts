@@ -4831,6 +4831,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         defaultTimeMinutes: credentials.defaultTimeMinutes,
         autoUpdateStatus: credentials.autoUpdateStatus,
         defaultStatusId: credentials.defaultStatusId,
+        defaultMemberIdentifier: credentials.defaultMemberIdentifier,
         createdAt: new Date().toISOString(), // Placeholder - you may want to add these fields to DB
         updatedAt: new Date().toISOString(),
         createdBy: "admin", // Placeholder
@@ -4848,7 +4849,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/tenant/:tenantId/connectwise-credentials", requireAdminAuth, async (req, res) => {
     try {
       const { tenantId } = req.params;
-      const { baseUrl, companyId, publicKey, privateKey, clientId, defaultTimeMinutes, autoUpdateStatus, defaultStatusId } = req.body;
+      const { baseUrl, companyId, publicKey, privateKey, clientId, defaultTimeMinutes, autoUpdateStatus, defaultStatusId, defaultMemberIdentifier } = req.body;
 
       // Get user identifier (email for operators, username for local admin)
       const userIdentifier = (req as any).user?.email || (req as any).user?.username;
@@ -4891,9 +4892,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         publicKey: publicKey || (existing?.publicKey || ""),
         privateKey: privateKey || (existing?.privateKey || ""),
         clientId: clientId || (existing?.clientId || ""),
-        defaultTimeMinutes: defaultTimeMinutes || 15,
+        defaultTimeMinutes: defaultTimeMinutes || 30,
         autoUpdateStatus: autoUpdateStatus || false,
         defaultStatusId: defaultStatusId || null,
+        defaultMemberIdentifier: defaultMemberIdentifier || null,
       };
 
       // Store credentials (will upsert in the database)
@@ -4909,6 +4911,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         defaultTimeMinutes: credentialData.defaultTimeMinutes,
         autoUpdateStatus: credentialData.autoUpdateStatus,
         defaultStatusId: credentialData.defaultStatusId,
+        defaultMemberIdentifier: credentialData.defaultMemberIdentifier,
         updatedAt: new Date().toISOString(),
       });
     } catch (error) {

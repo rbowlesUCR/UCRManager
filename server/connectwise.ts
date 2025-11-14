@@ -23,6 +23,7 @@ export interface ConnectWiseConfig {
   defaultTimeMinutes: number;
   autoUpdateStatus: boolean;
   defaultStatusId?: number;
+  defaultMemberIdentifier?: string; // Default ConnectWise member username for time entries
 }
 
 // ConnectWise ticket interface (basic structure)
@@ -106,7 +107,8 @@ export async function getConnectWiseCredentials(tenantId: string): Promise<Conne
         client_id,
         default_time_minutes,
         auto_update_status,
-        default_status_id
+        default_status_id,
+        default_member_identifier
       FROM connectwise_credentials
       WHERE tenant_id = $1`,
       [tenantId]
@@ -129,9 +131,10 @@ export async function getConnectWiseCredentials(tenantId: string): Promise<Conne
       publicKey,
       privateKey,
       clientId,
-      defaultTimeMinutes: cred.default_time_minutes || 15,
+      defaultTimeMinutes: cred.default_time_minutes || 30,
       autoUpdateStatus: cred.auto_update_status || false,
       defaultStatusId: cred.default_status_id,
+      defaultMemberIdentifier: cred.default_member_identifier,
     };
   } catch (error) {
     console.error('[ConnectWise] Error fetching credentials:', error);
@@ -164,10 +167,11 @@ export async function storeConnectWiseCredentials(
         default_time_minutes,
         auto_update_status,
         default_status_id,
+        default_member_identifier,
         created_by,
         updated_by
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
       )
       ON CONFLICT (tenant_id) DO UPDATE SET
         base_url = EXCLUDED.base_url,
@@ -178,6 +182,7 @@ export async function storeConnectWiseCredentials(
         default_time_minutes = EXCLUDED.default_time_minutes,
         auto_update_status = EXCLUDED.auto_update_status,
         default_status_id = EXCLUDED.default_status_id,
+        default_member_identifier = EXCLUDED.default_member_identifier,
         updated_by = EXCLUDED.updated_by,
         updated_at = NOW()`,
       [
@@ -187,9 +192,10 @@ export async function storeConnectWiseCredentials(
         encryptedPublicKey,
         encryptedPrivateKey,
         encryptedClientId,
-        credentials.defaultTimeMinutes || 15,
+        credentials.defaultTimeMinutes || 30,
         credentials.autoUpdateStatus || false,
         credentials.defaultStatusId || null,
+        credentials.defaultMemberIdentifier || null,
         adminUserId,
         adminUserId
       ]
@@ -352,8 +358,10 @@ export async function addTicketNote(
       detailDescriptionFlag: !isInternal,
     };
 
-    if (memberIdentifier) {
-      notePayload.member = { identifier: memberIdentifier };
+    // Use provided memberIdentifier or default from credentials
+    const finalMemberIdentifier = memberIdentifier || credentials.defaultMemberIdentifier;
+    if (finalMemberIdentifier) {
+      notePayload.member = { identifier: finalMemberIdentifier };
     }
 
     console.log(`[ConnectWise] Adding note to ticket ${ticketId}`);
@@ -383,7 +391,7 @@ export async function addTicketNote(
 export async function addTimeEntry(
   tenantId: string,
   ticketId: number,
-  memberIdentifier: string,
+  memberIdentifier: string | undefined,
   hours: number,
   notes?: string,
   workTypeId?: number
@@ -394,6 +402,12 @@ export async function addTimeEntry(
       throw new Error('ConnectWise credentials not configured for this tenant');
     }
 
+    // Use provided memberIdentifier or default from credentials
+    const finalMemberIdentifier = memberIdentifier || credentials.defaultMemberIdentifier;
+    if (!finalMemberIdentifier) {
+      throw new Error('Member identifier is required for time entries');
+    }
+
     const apiUrl = `${credentials.baseUrl}/v4_6_release/apis/3.0/time/entries`;
 
     const now = new Date();
@@ -401,7 +415,7 @@ export async function addTimeEntry(
       chargeToId: ticketId,
       chargeToType: 'ServiceTicket',
       member: {
-        identifier: memberIdentifier,
+        identifier: finalMemberIdentifier,
       },
       timeStart: now.toISOString(),
       actualHours: hours,
@@ -416,7 +430,7 @@ export async function addTimeEntry(
       timeEntry.workType = { id: workTypeId };
     }
 
-    console.log(`[ConnectWise] Adding ${hours} hour(s) time entry to ticket ${ticketId} for ${memberIdentifier}`);
+    console.log(`[ConnectWise] Adding ${hours} hour(s) time entry to ticket ${ticketId} for ${finalMemberIdentifier}`);
 
     const response = await fetch(apiUrl, {
       method: 'POST',
