@@ -2657,6 +2657,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       console.log(`[Assignment] SUCCESS: Both phone and policy assigned successfully`);
 
+      // Release old phone number back to pool if user had one
+      const oldPhoneNumber = (beforeState.LineURI || "").replace(/^tel:/i, "");
+      if (oldPhoneNumber && oldPhoneNumber !== phoneNumber) {
+        console.log(`[Assignment] User had previous number: ${oldPhoneNumber}, releasing it back to pool`);
+        const oldNumber = await storage.getPhoneNumberByLineUri(tenantId, oldPhoneNumber);
+        if (oldNumber) {
+          await storage.updatePhoneNumber(oldNumber.id, {
+            status: "available",
+            displayName: null,
+            userPrincipalName: null,
+            onlineVoiceRoutingPolicy: null,
+            lastModifiedBy: req.user?.email || "system",
+          });
+          console.log(`[Assignment] Released old number ${oldPhoneNumber} back to available pool`);
+        } else {
+          console.log(`[Assignment] Old number ${oldPhoneNumber} not found in local database - skipping release`);
+        }
+      } else if (!oldPhoneNumber) {
+        console.log(`[Assignment] User had no previous number - nothing to release`);
+      } else {
+        console.log(`[Assignment] Same number reassigned - no release needed`);
+      }
+
       // Update local database to mark number as used
       const operatorEmail = req.user?.email || "unknown";
       const localNumber = await storage.getPhoneNumberByLineUri(tenantId, phoneNumber);
@@ -2668,9 +2691,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           onlineVoiceRoutingPolicy: routingPolicy,
           lastModifiedBy: operatorEmail,
         });
-        console.log(`Updated phone number ${phoneNumber} to used in local database`);
+        console.log(`[Assignment] Updated phone number ${phoneNumber} to used in local database`);
       } else {
-        console.log(`Phone number ${phoneNumber} not found in local database - skipping update`);
+        console.log(`[Assignment] Phone number ${phoneNumber} not found in local database - skipping update`);
       }
 
       // Close the temporary PowerShell session

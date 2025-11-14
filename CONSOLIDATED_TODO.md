@@ -5,13 +5,25 @@
 
 ---
 
-## 🔴 HIGH PRIORITY - ConnectWise Integration
+## 🔴 HIGH PRIORITY - Critical Bug Fixes
 
-### Status Dropdown Issues (Just Fixed ✅)
+### Phone Number Lifecycle (Just Fixed ✅)
+- [x] ✅ **FIXED**: Phone numbers not returned to pool when changing user assignments
+  - Added logic to release old number before assigning new one
+  - Numbers now properly return to "available" status
+  - Fixed resource depletion in dev tenant
+  - Documented in: `PHONE_NUMBER_LIFECYCLE_FIX.md`
+
+### ConnectWise Status Dropdown (Previously Fixed ✅)
 - [x] ✅ **FIXED**: Empty string in SelectItem causing page crash
   - Changed value from `""` to `"0"`
   - Status dropdown now renders correctly
+  - Documented in: `CONNECTWISE_STATUS_FIX.md`
   - Committed: `29b5d0b`, `3624243`
+
+---
+
+## 🔴 HIGH PRIORITY - ConnectWise Integration
 
 ### 1. Filter ConnectWise Statuses 🔴 URGENT
 **Estimated Time**: 15-30 minutes
