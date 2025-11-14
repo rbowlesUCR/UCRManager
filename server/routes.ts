@@ -4810,6 +4810,129 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== CONNECTWISE CREDENTIALS API =====
+
+  // Get ConnectWise credentials for a tenant
+  app.get("/api/admin/tenant/:tenantId/connectwise-credentials", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const credentials = await getConnectWiseCredentials(tenantId);
+
+      if (!credentials) {
+        return res.status(404).json({ error: "No ConnectWise credentials found for this tenant" });
+      }
+
+      // Remove sensitive fields from response for security
+      const sanitized = {
+        id: tenantId, // Using tenantId as ID for consistency
+        tenantId: tenantId,
+        baseUrl: credentials.baseUrl,
+        companyId: credentials.companyId,
+        defaultTimeMinutes: credentials.defaultTimeMinutes,
+        autoUpdateStatus: credentials.autoUpdateStatus,
+        defaultStatusId: credentials.defaultStatusId,
+        createdAt: new Date().toISOString(), // Placeholder - you may want to add these fields to DB
+        updatedAt: new Date().toISOString(),
+        createdBy: "admin", // Placeholder
+        lastModifiedBy: "admin", // Placeholder
+      };
+
+      res.json(sanitized);
+    } catch (error) {
+      console.error("[ConnectWise] Error fetching credentials:", error);
+      res.status(500).json({ error: "Failed to fetch ConnectWise credentials" });
+    }
+  });
+
+  // Create or update ConnectWise credentials for a tenant (upsert pattern)
+  app.post("/api/admin/tenant/:tenantId/connectwise-credentials", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { baseUrl, companyId, publicKey, privateKey, clientId, defaultTimeMinutes, autoUpdateStatus, defaultStatusId } = req.body;
+      const operatorName = (req as any).adminUser?.username || "system";
+
+      // Validate required fields
+      if (!baseUrl || !companyId) {
+        return res.status(400).json({
+          error: "baseUrl and companyId are required"
+        });
+      }
+
+      // Check if we have existing credentials
+      const existing = await getConnectWiseCredentials(tenantId);
+
+      // For new credentials, require all API keys
+      if (!existing && (!publicKey || !privateKey || !clientId)) {
+        return res.status(400).json({
+          error: "publicKey, privateKey, and clientId are required for new credentials"
+        });
+      }
+
+      // For updates, if any key is provided, all must be provided
+      if (existing && (publicKey || privateKey || clientId)) {
+        if (!publicKey || !privateKey || !clientId) {
+          return res.status(400).json({
+            error: "If updating API keys, all three (publicKey, privateKey, clientId) must be provided"
+          });
+        }
+      }
+
+      // Build credentials object - use existing keys if not updating them
+      const credentialData: any = {
+        baseUrl,
+        companyId,
+        publicKey: publicKey || (existing?.publicKey || ""),
+        privateKey: privateKey || (existing?.privateKey || ""),
+        clientId: clientId || (existing?.clientId || ""),
+        defaultTimeMinutes: defaultTimeMinutes || 15,
+        autoUpdateStatus: autoUpdateStatus || false,
+        defaultStatusId: defaultStatusId || null,
+      };
+
+      // Store credentials (will upsert in the database)
+      await storeConnectWiseCredentials(tenantId, credentialData, operatorName);
+
+      console.log(`[ConnectWise] Credentials saved for tenant ${tenantId}`);
+
+      res.json({
+        id: tenantId,
+        tenantId: tenantId,
+        baseUrl: credentialData.baseUrl,
+        companyId: credentialData.companyId,
+        defaultTimeMinutes: credentialData.defaultTimeMinutes,
+        autoUpdateStatus: credentialData.autoUpdateStatus,
+        defaultStatusId: credentialData.defaultStatusId,
+        updatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("[ConnectWise] Error saving credentials:", error);
+      res.status(500).json({ error: "Failed to save ConnectWise credentials" });
+    }
+  });
+
+  // Delete ConnectWise credentials for a tenant
+  app.delete("/api/admin/tenant/:tenantId/connectwise-credentials", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+
+      // Check if credentials exist
+      const credentials = await getConnectWiseCredentials(tenantId);
+      if (!credentials) {
+        return res.status(404).json({ error: "No ConnectWise credentials found for this tenant" });
+      }
+
+      // Delete credentials from database
+      await sql`DELETE FROM connectwise_credentials WHERE tenant_id = ${tenantId}`;
+
+      console.log(`[ConnectWise] Credentials deleted for tenant ${tenantId}`);
+
+      res.json({ success: true, message: "ConnectWise credentials deleted" });
+    } catch (error) {
+      console.error("[ConnectWise] Error deleting credentials:", error);
+      res.status(500).json({ error: "Failed to delete ConnectWise credentials" });
+    }
+  });
+
   // Setup debug routes (if DEBUG_MODE is enabled)
   const { setupDebugRoutes } = await import("./debug-routes");
   setupDebugRoutes(app);

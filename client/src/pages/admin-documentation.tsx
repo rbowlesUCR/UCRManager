@@ -68,7 +68,7 @@ export default function AdminDocumentation() {
       </div>
 
       <Tabs defaultValue="operator" className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="operator" data-testid="tab-operator-docs">
             Operator Tenant Setup
           </TabsTrigger>
@@ -77,6 +77,9 @@ export default function AdminDocumentation() {
           </TabsTrigger>
           <TabsTrigger value="powershell" data-testid="tab-powershell-docs">
             PowerShell Setup
+          </TabsTrigger>
+          <TabsTrigger value="connectwise" data-testid="tab-connectwise-docs">
+            ConnectWise Setup
           </TabsTrigger>
           <TabsTrigger value="guides" data-testid="tab-full-guides">
             Full Guides
@@ -522,6 +525,239 @@ export default function AdminDocumentation() {
                     <li>Remove old certificate from Azure AD</li>
                   </ol>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        <TabsContent value="connectwise" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>ConnectWise Manage Integration Setup</CardTitle>
+              <CardDescription>
+                Configure ConnectWise Manage PSA API integration for automatic change logging
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Overview</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  ConnectWise Manage integration allows you to automatically log voice configuration changes to service tickets.
+                  When making changes in the Voice Configuration dashboard, you can optionally link a ConnectWise ticket to automatically:
+                </p>
+                <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-4">
+                  <li>Add a detailed note to the ticket documenting the change</li>
+                  <li>Create a time entry (configurable, defaults to 15 minutes)</li>
+                  <li>Optionally update the ticket status (configurable)</li>
+                </ul>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Prerequisites</h3>
+                <ul className="list-disc list-inside space-y-2 text-sm">
+                  <li>Active ConnectWise Manage subscription</li>
+                  <li>Administrator access to ConnectWise Manage</li>
+                  <li>Access to the ConnectWise Developer Portal</li>
+                  <li>Customer tenant configured in Teams Voice Manager</li>
+                </ul>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Step 1: Create API Member in ConnectWise</h3>
+                <ol className="list-decimal list-inside space-y-2 text-sm">
+                  <li>Sign in to <a href="https://manage.connectwise.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">ConnectWise Manage <ExternalLink className="h-3 w-3" /></a></li>
+                  <li>Navigate to <strong>System</strong> → <strong>Members</strong> → <strong>API Members</strong></li>
+                  <li>Click <strong>New</strong> to create a new API member</li>
+                  <li>Configure:
+                    <ul className="list-disc list-inside ml-6 mt-2 space-y-1">
+                      <li><strong>Member ID</strong>: TeamsVoiceManagerAPI (or your preferred name)</li>
+                      <li><strong>Department</strong>: Select appropriate department (typically IT or Operations)</li>
+                      <li><strong>Role</strong>: Choose a role with permissions for:
+                        <ul className="list-circle list-inside ml-6 mt-1 space-y-1">
+                          <li>Service tickets (read/write)</li>
+                          <li>Time entries (create)</li>
+                          <li>Service notes (create)</li>
+                        </ul>
+                      </li>
+                    </ul>
+                  </li>
+                  <li>Click <strong>Save</strong></li>
+                  <li>Note the <strong>API Member ID</strong> - this is your <strong>Public Key</strong></li>
+                </ol>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Step 2: Generate API Keys</h3>
+                <ol className="list-decimal list-inside space-y-2 text-sm">
+                  <li>In the API Member record, navigate to the <strong>API Keys</strong> tab</li>
+                  <li>Click <strong>Generate Key</strong></li>
+                  <li className="text-destructive font-semibold">⚠️ Immediately copy the <strong>Private Key</strong> (only shown once!)</li>
+                  <li>Store the Public Key (API Member ID) and Private Key securely</li>
+                </ol>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Step 3: Register for Client ID</h3>
+                <ol className="list-decimal list-inside space-y-2 text-sm">
+                  <li>Visit <a href="https://developer.connectwise.com/ClientID" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">ConnectWise Developer Portal <ExternalLink className="h-3 w-3" /></a></li>
+                  <li>Sign in with your ConnectWise account</li>
+                  <li>Click <strong>Register New App</strong></li>
+                  <li>Fill in the form:
+                    <ul className="list-disc list-inside ml-6 mt-2 space-y-1">
+                      <li><strong>Application Name</strong>: Teams Voice Manager</li>
+                      <li><strong>Company Name</strong>: Your company name</li>
+                      <li><strong>Description</strong>: Microsoft Teams voice configuration management</li>
+                    </ul>
+                  </li>
+                  <li>Accept the terms and submit</li>
+                  <li>Save the <strong>Client ID</strong> (GUID format)</li>
+                </ol>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Step 4: Identify Your ConnectWise Server</h3>
+                <div className="bg-muted p-4 rounded-lg space-y-2">
+                  <p className="text-sm">Your ConnectWise server URL depends on your region:</p>
+                  <ul className="list-disc list-inside space-y-1 text-sm ml-4">
+                    <li><strong>North America</strong>: <code className="bg-background px-2 py-0.5 rounded">https://na.myconnectwise.net</code></li>
+                    <li><strong>Europe</strong>: <code className="bg-background px-2 py-0.5 rounded">https://eu.myconnectwise.net</code></li>
+                    <li><strong>Australia</strong>: <code className="bg-background px-2 py-0.5 rounded">https://au.myconnectwise.net</code></li>
+                    <li><strong>Staging/Development</strong>: <code className="bg-background px-2 py-0.5 rounded">https://staging.connectwisedev.com</code></li>
+                  </ul>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    Note: Do not include your company ID in the base URL - this is configured separately
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Step 5: Find Your Company ID</h3>
+                <ol className="list-decimal list-inside space-y-2 text-sm">
+                  <li>In ConnectWise Manage, navigate to <strong>System</strong> → <strong>Setup Tables</strong></li>
+                  <li>Select <strong>Company</strong></li>
+                  <li>Your company identifier is shown in the list (typically lowercase, e.g., "yourcompany")</li>
+                  <li>This is separate from your company name and is used for API authentication</li>
+                </ol>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Step 6: Configure in Teams Voice Manager</h3>
+                <ol className="list-decimal list-inside space-y-2 text-sm">
+                  <li>Go to <strong>Admin</strong> → <strong>Customers</strong></li>
+                  <li>Select the customer tenant you want to configure</li>
+                  <li>Scroll down to the <strong>ConnectWise Manage API Credentials</strong> section</li>
+                  <li>Enter the following information:
+                    <ul className="list-disc list-inside ml-6 mt-2 space-y-1">
+                      <li><strong>Base URL</strong>: Your ConnectWise server URL (from Step 4)</li>
+                      <li><strong>Company ID</strong>: Your company identifier (from Step 5)</li>
+                      <li><strong>Public Key</strong>: API Member ID (from Step 1)</li>
+                      <li><strong>Private Key</strong>: API key generated (from Step 2)</li>
+                      <li><strong>Client ID</strong>: Developer portal Client ID (from Step 3)</li>
+                    </ul>
+                  </li>
+                  <li>Configure default time entry settings:
+                    <ul className="list-disc list-inside ml-6 mt-2 space-y-1">
+                      <li><strong>Default Time (minutes)</strong>: How much time to log per change (default: 15)</li>
+                      <li><strong>Auto-Update Ticket Status</strong>: Enable to automatically change ticket status</li>
+                      <li><strong>Default Status ID</strong>: Status to set when auto-update is enabled</li>
+                    </ul>
+                  </li>
+                  <li>Click <strong>Save Credentials</strong></li>
+                </ol>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Step 7: Find Status IDs (Optional)</h3>
+                <p className="text-sm text-muted-foreground mb-2">
+                  If you want to auto-update ticket status, you need the Status ID:
+                </p>
+                <ol className="list-decimal list-inside space-y-2 text-sm">
+                  <li>In ConnectWise Manage, go to <strong>System</strong> → <strong>Setup Tables</strong></li>
+                  <li>Navigate to <strong>Service Board</strong></li>
+                  <li>Select your board (e.g., "Service Board")</li>
+                  <li>Click on <strong>Statuses</strong></li>
+                  <li>Hover over a status to see its ID in the URL, or use the ConnectWise API to list statuses</li>
+                  <li>Common examples: "In Progress" might be ID 2, "Completed" might be ID 6, etc.</li>
+                </ol>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Usage</h3>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Once configured, the ConnectWise integration works seamlessly:
+                </p>
+                <ol className="list-decimal list-inside space-y-2 text-sm">
+                  <li>Go to the <strong>Voice Configuration</strong> dashboard</li>
+                  <li>Select a customer tenant (with ConnectWise configured)</li>
+                  <li>Select a user and configure their phone number</li>
+                  <li>You'll see a <strong>ConnectWise Ticket (Optional)</strong> field</li>
+                  <li>Start typing to search for a ticket by number or summary</li>
+                  <li>Select a ticket (or leave blank to skip ConnectWise logging)</li>
+                  <li>Click <strong>Assign Number</strong> to make the change</li>
+                  <li>The change will be logged to ConnectWise automatically with:
+                    <ul className="list-disc list-inside ml-6 mt-2 space-y-1">
+                      <li>Detailed note about what changed</li>
+                      <li>Time entry (using configured default)</li>
+                      <li>Optional status update (if enabled)</li>
+                    </ul>
+                  </li>
+                </ol>
+              </div>
+
+              <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+                <h4 className="font-semibold text-sm mb-2 flex items-center gap-2">
+                  <span className="text-amber-600 dark:text-amber-400">⚠️</span>
+                  Important Notes
+                </h4>
+                <ul className="list-disc list-inside space-y-1 text-sm text-amber-900 dark:text-amber-100">
+                  <li>API credentials are stored encrypted in the database</li>
+                  <li>Each customer tenant can have its own ConnectWise configuration</li>
+                  <li>Linking a ticket is always optional - changes work without it</li>
+                  <li>The ConnectWise feature must be enabled globally (feature flag: <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">connectwise_integration</code>)</li>
+                  <li>API members need sufficient permissions to create notes and time entries</li>
+                </ul>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold mb-3">Troubleshooting</h3>
+                <div className="space-y-3">
+                  <div>
+                    <h4 className="font-semibold text-sm mb-1">Authentication Errors</h4>
+                    <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-4">
+                      <li>Verify Base URL matches your region (na/eu/au)</li>
+                      <li>Confirm Company ID is correct (lowercase, no spaces)</li>
+                      <li>Check Public Key (API Member ID) and Private Key are correct</li>
+                      <li>Ensure Client ID is registered and valid</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-sm mb-1">Permission Errors</h4>
+                    <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-4">
+                      <li>API Member role must have service ticket read/write access</li>
+                      <li>Time entry creation permissions required</li>
+                      <li>Service note creation permissions required</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-sm mb-1">Ticket Not Found</h4>
+                    <ul className="list-disc list-inside space-y-1 text-sm text-muted-foreground ml-4">
+                      <li>Verify ticket exists and is accessible with API Member credentials</li>
+                      <li>Check ticket board permissions</li>
+                      <li>Ensure ticket is not in a closed/deleted status</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold mb-3">API Documentation</h3>
+                <p className="text-sm text-muted-foreground mb-2">
+                  For more information about the ConnectWise Manage API:
+                </p>
+                <ul className="list-disc list-inside space-y-1 text-sm">
+                  <li><a href="https://developer.connectwise.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">ConnectWise Developer Portal <ExternalLink className="h-3 w-3" /></a></li>
+                  <li><a href="https://developer.connectwise.com/Products/Manage/REST" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">REST API Documentation <ExternalLink className="h-3 w-3" /></a></li>
+                  <li><a href="https://developer.connectwise.com/ClientID" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1">Client ID Registration <ExternalLink className="h-3 w-3" /></a></li>
+                </ul>
               </div>
             </CardContent>
           </Card>

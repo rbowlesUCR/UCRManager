@@ -33,13 +33,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Building, Plus, Edit, Trash2, Eye, EyeOff, ShieldCheck, CheckCircle, XCircle, Terminal, AlertCircle, Server } from "lucide-react";
+import { Building, Plus, Edit, Trash2, Eye, EyeOff, ShieldCheck, CheckCircle, XCircle, Terminal, AlertCircle, Server, Ticket } from "lucide-react";
 import { AdminLayout } from "@/components/admin-layout";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { AdminPowerShellCredentials } from "@/components/admin-powershell-credentials";
 import { Admin3CXCredentials } from "@/components/admin-3cx-credentials";
+import { AdminConnectWiseCredentials } from "@/components/admin-connectwise-credentials";
 import type { CustomerTenant } from "@shared/schema";
 
 interface PermissionValidationResult {
@@ -64,6 +65,9 @@ export default function AdminCustomerTenants() {
 
   // 3CX credentials state
   const [threeCXConfigTenant, setThreeCXConfigTenant] = useState<CustomerTenant | null>(null);
+
+  // ConnectWise credentials state
+  const [connectWiseConfigTenant, setConnectWiseConfigTenant] = useState<CustomerTenant | null>(null);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -218,6 +222,10 @@ export default function AdminCustomerTenants() {
     setThreeCXConfigTenant(tenant);
   };
 
+  const handleConfigureConnectWise = (tenant: CustomerTenant) => {
+    setConnectWiseConfigTenant(tenant);
+  };
+
   return (
     <AdminLayout>
       <div className="space-y-6">
@@ -314,6 +322,15 @@ export default function AdminCustomerTenants() {
                               title="Configure 3CX Credentials"
                             >
                               <Server className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleConfigureConnectWise(tenant)}
+                              data-testid={`button-configure-connectwise-${tenant.id}`}
+                              title="Configure ConnectWise Credentials"
+                            >
+                              <Ticket className="h-4 w-4" />
                             </Button>
                             <Button
                               variant="outline"
@@ -604,6 +621,38 @@ export default function AdminCustomerTenants() {
                 variant="outline"
                 onClick={() => setThreeCXConfigTenant(null)}
                 data-testid="button-close-3cx-dialog"
+              >
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* ConnectWise Credentials Dialog */}
+        <Dialog open={!!connectWiseConfigTenant} onOpenChange={(open) => !open && setConnectWiseConfigTenant(null)}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Ticket className="w-5 h-5" />
+                ConnectWise Credentials - {connectWiseConfigTenant?.tenantName}
+              </DialogTitle>
+              <DialogDescription>
+                Configure ConnectWise Manage PSA API credentials for this tenant. Enables automatic logging of voice configuration changes to service tickets.
+              </DialogDescription>
+            </DialogHeader>
+
+            {connectWiseConfigTenant && (
+              <AdminConnectWiseCredentials
+                tenantId={connectWiseConfigTenant.id}
+                tenantName={connectWiseConfigTenant.tenantName}
+              />
+            )}
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setConnectWiseConfigTenant(null)}
+                data-testid="button-close-connectwise-dialog"
               >
                 Close
               </Button>
