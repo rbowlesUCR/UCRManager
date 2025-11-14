@@ -152,17 +152,17 @@ export default function Dashboard() {
   // Check if ConnectWise integration is enabled
   const isConnectWiseEnabled = connectWiseFlag?.isEnabled ?? false;
 
-  // Fetch ConnectWise statuses for the selected ticket's board only
+  // Fetch ConnectWise statuses available for the selected ticket
   const { data: cwStatuses } = useQuery({
-    queryKey: [`/api/admin/tenant/${selectedTenant?.id}/connectwise/statuses`, selectedTicket?.board?.id],
-    enabled: !!selectedTenant && !!selectedTicket?.board?.id && isConnectWiseEnabled,
+    queryKey: [`/api/admin/tenant/${selectedTenant?.id}/connectwise/tickets/${selectedTicket?.id}/statuses`],
+    enabled: !!selectedTenant && !!selectedTicket?.id && isConnectWiseEnabled,
     queryFn: async () => {
-      // Fetch statuses only for the specific board of the selected ticket
-      const boardId = selectedTicket?.board?.id;
-      if (!boardId) {
+      // Fetch available statuses for the selected ticket
+      const ticketId = selectedTicket?.id;
+      if (!ticketId) {
         return { statuses: [] };
       }
-      const res = await fetch(`/api/admin/tenant/${selectedTenant?.id}/connectwise/statuses?boardId=${boardId}`, {
+      const res = await fetch(`/api/admin/tenant/${selectedTenant?.id}/connectwise/tickets/${ticketId}/statuses`, {
         credentials: "include",
       });
       if (!res.ok) {

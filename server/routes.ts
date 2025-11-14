@@ -4683,6 +4683,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get available statuses for a specific ConnectWise ticket
+  app.get("/api/admin/tenant/:tenantId/connectwise/tickets/:ticketId/statuses", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId, ticketId } = req.params;
+
+      // First, get the ticket to find its board ID
+      const ticket = await getTicket(tenantId, parseInt(ticketId));
+
+      if (!ticket) {
+        return res.status(404).json({ error: "Ticket not found" });
+      }
+
+      // Extract board ID from ticket
+      const boardId = ticket.board?.id;
+      if (!boardId) {
+        return res.status(400).json({ error: "Ticket has no board associated" });
+      }
+
+      // Fetch statuses for the ticket's board
+      const statuses = await getTicketStatuses(tenantId, boardId);
+
+      res.json({ statuses });
+    } catch (error: any) {
+      console.error("[ConnectWise API] Error fetching ticket statuses:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch ticket statuses" });
+    }
+  });
+
   // Add a note to a ConnectWise ticket
   app.post("/api/admin/tenant/:tenantId/connectwise/tickets/:ticketId/notes", requireAdminAuth, async (req, res) => {
     try {
