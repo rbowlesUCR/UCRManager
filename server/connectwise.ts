@@ -486,6 +486,124 @@ export async function updateTicketStatus(
 }
 
 /**
+ * Get available ticket statuses for a board
+ */
+export async function getTicketStatuses(
+  tenantId: string,
+  boardId?: number
+): Promise<Array<{ id: number; name: string; boardId: number; boardName: string }>> {
+  try {
+    const credentials = await getConnectWiseCredentials(tenantId);
+    if (!credentials) {
+      throw new Error('ConnectWise credentials not configured for this tenant');
+    }
+
+    // Build API URL
+    const apiUrl = new URL(`${credentials.baseUrl}/v4_6_release/apis/3.0/service/boards`);
+
+    // If boardId specified, get statuses for that board only
+    if (boardId) {
+      apiUrl.pathname += `/${boardId}/statuses`;
+    }
+
+    console.log(`[ConnectWise] Fetching statuses${boardId ? ` for board ${boardId}` : ''}`);
+
+    const response = await fetch(apiUrl.toString(), {
+      method: 'GET',
+      headers: createHeaders(credentials),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`ConnectWise API error: ${response.status} - ${errorText}`);
+    }
+
+    const statuses = await response.json();
+
+    // If fetching all boards, flatten the statuses
+    if (!boardId) {
+      const allStatuses: Array<{ id: number; name: string; boardId: number; boardName: string }> = [];
+      for (const board of statuses) {
+        const boardStatuses = await getTicketStatuses(tenantId, board.id);
+        allStatuses.push(...boardStatuses);
+      }
+      return allStatuses;
+    }
+
+    // Return statuses for specific board
+    return statuses.map((status: any) => ({
+      id: status.id,
+      name: status.name,
+      boardId: status.board?.id || boardId,
+      boardName: status.board?.name || '',
+    }));
+  } catch (error: any) {
+    console.error('[ConnectWise] Error fetching statuses:', error);
+    throw new Error(`Failed to fetch statuses: ${error.message}`);
+  }
+}
+
+/**
+ * Test ConnectWise API connection
+ */
+export async function testConnection(tenantId: string): Promise<{
+  success: boolean;
+  message: string;
+  details?: any;
+}> {
+  try {
+    const credentials = await getConnectWiseCredentials(tenantId);
+    if (!credentials) {
+      return {
+        success: false,
+        message: 'ConnectWise credentials not configured for this tenant',
+      };
+    }
+
+    // Try to fetch company info as a connection test
+    const apiUrl = `${credentials.baseUrl}/v4_6_release/apis/3.0/company/companies?pageSize=1`;
+
+    console.log('[ConnectWise] Testing API connection...');
+
+    const response = await fetch(apiUrl, {
+      method: 'GET',
+      headers: createHeaders(credentials),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        success: false,
+        message: `ConnectWise API error: ${response.status}`,
+        details: errorText,
+      };
+    }
+
+    const data = await response.json();
+
+    return {
+      success: true,
+      message: 'Successfully connected to ConnectWise API',
+      details: {
+        baseUrl: credentials.baseUrl,
+        companyId: credentials.companyId,
+        responseStatus: response.status,
+        companiesFound: data.length,
+      },
+    };
+  } catch (error: any) {
+    console.error('[ConnectWise] Connection test failed:', error);
+    return {
+      success: false,
+      message: `Connection failed: ${error.message}`,
+      details: error.stack,
+    };
+  }
+}
+
+/**
  * Check if ConnectWise integration is enabled for a tenant
  */
 export async function isConnectWiseEnabled(tenantId: string): Promise<boolean> {

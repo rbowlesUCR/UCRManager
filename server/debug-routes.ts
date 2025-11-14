@@ -779,6 +779,241 @@ Get-ChildItem -Path Cert:\\LocalMachine\\My | ForEach-Object {
     }
   });
 
+  // ===== CONNECTWISE DEBUGGING =====
+
+  // Test ConnectWise API connection
+  app.post("/api/debug/connectwise/test-connection/:tenantId", checkDebugEnabled, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { testConnection } = await import("./connectwise");
+      const result = await testConnection(tenantId);
+      res.json(result);
+    } catch (error) {
+      console.error("Debug ConnectWise connection test error:", error);
+      res.status(500).json({
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+    }
+  });
+
+  // Search ConnectWise tickets
+  app.get("/api/debug/connectwise/tickets/search/:tenantId", checkDebugEnabled, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { q = "", limit = "10" } = req.query;
+      const { searchTickets } = await import("./connectwise");
+      const tickets = await searchTickets(tenantId, q as string, parseInt(limit as string));
+      res.json({
+        success: true,
+        count: tickets.length,
+        query: q,
+        tickets
+      });
+    } catch (error) {
+      console.error("Debug ConnectWise search error:", error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Get ConnectWise ticket details
+  app.get("/api/debug/connectwise/tickets/:tenantId/:ticketId", checkDebugEnabled, async (req, res) => {
+    try {
+      const { tenantId, ticketId } = req.params;
+      const { getTicket } = await import("./connectwise");
+      const ticket = await getTicket(tenantId, parseInt(ticketId));
+      res.json({
+        success: true,
+        ticket
+      });
+    } catch (error) {
+      console.error("Debug ConnectWise get ticket error:", error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Add note to ConnectWise ticket
+  app.post("/api/debug/connectwise/tickets/:tenantId/:ticketId/notes", checkDebugEnabled, async (req, res) => {
+    try {
+      const { tenantId, ticketId } = req.params;
+      const { noteText, memberIdentifier, isInternal = false } = req.body;
+      const { addTicketNote } = await import("./connectwise");
+      await addTicketNote(tenantId, parseInt(ticketId), noteText, memberIdentifier, isInternal);
+      res.json({
+        success: true,
+        message: `Note added to ticket ${ticketId}`
+      });
+    } catch (error) {
+      console.error("Debug ConnectWise add note error:", error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Add time entry to ConnectWise ticket
+  app.post("/api/debug/connectwise/tickets/:tenantId/:ticketId/time", checkDebugEnabled, async (req, res) => {
+    try {
+      const { tenantId, ticketId } = req.params;
+      const { memberIdentifier, hours, notes, workTypeId } = req.body;
+      const { addTimeEntry } = await import("./connectwise");
+      await addTimeEntry(tenantId, parseInt(ticketId), memberIdentifier, hours, notes, workTypeId);
+      res.json({
+        success: true,
+        message: `Time entry (${hours}h) added to ticket ${ticketId}`
+      });
+    } catch (error) {
+      console.error("Debug ConnectWise add time error:", error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Update ConnectWise ticket status
+  app.patch("/api/debug/connectwise/tickets/:tenantId/:ticketId/status", checkDebugEnabled, async (req, res) => {
+    try {
+      const { tenantId, ticketId } = req.params;
+      const { statusId } = req.body;
+      const { updateTicketStatus } = await import("./connectwise");
+      await updateTicketStatus(tenantId, parseInt(ticketId), statusId);
+      res.json({
+        success: true,
+        message: `Ticket ${ticketId} status updated to ${statusId}`
+      });
+    } catch (error) {
+      console.error("Debug ConnectWise update status error:", error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Get available statuses
+  app.get("/api/debug/connectwise/statuses/:tenantId", checkDebugEnabled, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { boardId } = req.query;
+      const { getTicketStatuses } = await import("./connectwise");
+      const statuses = await getTicketStatuses(tenantId, boardId ? parseInt(boardId as string) : undefined);
+      res.json({
+        success: true,
+        count: statuses.length,
+        statuses
+      });
+    } catch (error) {
+      console.error("Debug ConnectWise get statuses error:", error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Comprehensive ConnectWise test
+  app.post("/api/debug/connectwise/comprehensive-test/:tenantId", checkDebugEnabled, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const { ticketId, memberIdentifier } = req.body;
+
+      const results: any = {
+        timestamp: new Date().toISOString(),
+        tenantId,
+        tests: {}
+      };
+
+      // Test 1: Connection
+      console.log("[ConnectWise Debug] Testing connection...");
+      const { testConnection } = await import("./connectwise");
+      results.tests.connection = await testConnection(tenantId);
+
+      // Test 2: Search tickets
+      console.log("[ConnectWise Debug] Searching tickets...");
+      const { searchTickets } = await import("./connectwise");
+      const searchResults = await searchTickets(tenantId, ticketId ? ticketId.toString() : "", 5);
+      results.tests.search = {
+        success: true,
+        ticketsFound: searchResults.length,
+        tickets: searchResults
+      };
+
+      // Test 3: Get ticket details (if ticketId provided)
+      if (ticketId) {
+        console.log(`[ConnectWise Debug] Getting ticket ${ticketId}...`);
+        const { getTicket } = await import("./connectwise");
+        const ticket = await getTicket(tenantId, parseInt(ticketId));
+        results.tests.getTicket = {
+          success: ticket !== null,
+          ticket
+        };
+
+        // Test 4: Add note (if memberIdentifier provided)
+        if (memberIdentifier) {
+          console.log(`[ConnectWise Debug] Adding test note to ticket ${ticketId}...`);
+          const { addTicketNote } = await import("./connectwise");
+          await addTicketNote(
+            tenantId,
+            parseInt(ticketId),
+            `[DEBUG TEST] ConnectWise integration test - ${new Date().toISOString()}`,
+            memberIdentifier,
+            true
+          );
+          results.tests.addNote = {
+            success: true,
+            message: "Test note added successfully"
+          };
+
+          // Test 5: Add time entry
+          console.log(`[ConnectWise Debug] Adding test time entry to ticket ${ticketId}...`);
+          const { addTimeEntry } = await import("./connectwise");
+          await addTimeEntry(
+            tenantId,
+            parseInt(ticketId),
+            memberIdentifier,
+            0.25,
+            "[DEBUG TEST] ConnectWise integration test time entry"
+          );
+          results.tests.addTime = {
+            success: true,
+            message: "Test time entry (15 min) added successfully"
+          };
+        }
+      }
+
+      // Test 6: Get statuses
+      console.log("[ConnectWise Debug] Fetching available statuses...");
+      const { getTicketStatuses } = await import("./connectwise");
+      const statuses = await getTicketStatuses(tenantId);
+      results.tests.statuses = {
+        success: true,
+        count: statuses.length,
+        statuses: statuses.slice(0, 10) // Return first 10 only
+      };
+
+      res.json({
+        success: true,
+        results
+      });
+    } catch (error) {
+      console.error("Debug ConnectWise comprehensive test error:", error);
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+    }
+  });
+
   console.log(`
   ┌─────────────────────────────────────────────────────┐
   │  🔧 DEBUG ENDPOINTS AVAILABLE                       │
@@ -805,6 +1040,16 @@ Get-ChildItem -Path Cert:\\LocalMachine\\My | ForEach-Object {
   │  POST /api/debug/lifecycle/run-check                │
   │  GET  /api/debug/lifecycle/stats                    │
   │  POST /api/debug/lifecycle/test-aging/:tenantId     │
+  ├─────────────────────────────────────────────────────┤
+  │  ConnectWise Integration Debugging:                 │
+  │  POST /api/debug/connectwise/test-connection/:tenantId │
+  │  GET  /api/debug/connectwise/tickets/search/:tenantId │
+  │  GET  /api/debug/connectwise/tickets/:tenantId/:ticketId │
+  │  POST /api/debug/connectwise/tickets/:tenantId/:ticketId/notes │
+  │  POST /api/debug/connectwise/tickets/:tenantId/:ticketId/time │
+  │  PATCH /api/debug/connectwise/tickets/:tenantId/:ticketId/status │
+  │  GET  /api/debug/connectwise/statuses/:tenantId     │
+  │  POST /api/debug/connectwise/comprehensive-test/:tenantId │
   ├─────────────────────────────────────────────────────┤
   │  To disable: Set DEBUG_MODE=false                   │
   └─────────────────────────────────────────────────────┘
