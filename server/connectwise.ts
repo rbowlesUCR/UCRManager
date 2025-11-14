@@ -70,6 +70,10 @@ export interface ConnectWiseTimeEntry {
   member: {
     identifier: string;
   };
+  workRole?: {
+    id?: number;
+    name?: string;
+  };
   workType?: {
     id: number;
     name?: string;
@@ -427,14 +431,24 @@ export async function addTimeEntry(
 
     const apiUrl = `${credentials.baseUrl}/v4_6_release/apis/3.0/time/entries`;
 
+    // Calculate time range: start time is (hours * 60) minutes before now
     const now = new Date();
+    const startTime = new Date(now.getTime() - (hours * 60 * 60 * 1000));
+
+    // Format dates without milliseconds for ConnectWise
+    const formatCWDate = (date: Date) => date.toISOString().replace(/\.\d{3}Z$/, 'Z');
+
     const timeEntry: ConnectWiseTimeEntry = {
       chargeToId: ticketId,
       chargeToType: 'ServiceTicket',
       member: {
         identifier: finalMemberIdentifier,
       },
-      timeStart: now.toISOString(),
+      workRole: {
+        name: 'UCRight Engineer',
+      },
+      timeStart: formatCWDate(startTime),
+      timeEnd: formatCWDate(now),
       actualHours: hours,
       billableOption: 'Billable',
     };
@@ -450,6 +464,7 @@ export async function addTimeEntry(
     }
 
     console.log(`[ConnectWise] Adding ${hours} hour(s) time entry to ticket ${ticketId} for ${finalMemberIdentifier}`);
+    console.log(`[ConnectWise] Time entry payload:`, JSON.stringify(timeEntry, null, 2));
 
     const response = await fetch(apiUrl, {
       method: 'POST',

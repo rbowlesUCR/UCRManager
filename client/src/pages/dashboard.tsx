@@ -152,12 +152,17 @@ export default function Dashboard() {
   // Check if ConnectWise integration is enabled
   const isConnectWiseEnabled = connectWiseFlag?.isEnabled ?? false;
 
-  // Fetch ConnectWise statuses when tenant is selected and ConnectWise is enabled
+  // Fetch ConnectWise statuses for the selected ticket's board only
   const { data: cwStatuses } = useQuery({
-    queryKey: [`/api/admin/tenant/${selectedTenant?.id}/connectwise/statuses`],
-    enabled: !!selectedTenant && isConnectWiseEnabled,
+    queryKey: [`/api/admin/tenant/${selectedTenant?.id}/connectwise/statuses`, selectedTicket?.board?.id],
+    enabled: !!selectedTenant && !!selectedTicket?.board?.id && isConnectWiseEnabled,
     queryFn: async () => {
-      const res = await fetch(`/api/admin/tenant/${selectedTenant?.id}/connectwise/statuses`, {
+      // Fetch statuses only for the specific board of the selected ticket
+      const boardId = selectedTicket?.board?.id;
+      if (!boardId) {
+        return { statuses: [] };
+      }
+      const res = await fetch(`/api/admin/tenant/${selectedTenant?.id}/connectwise/statuses?boardId=${boardId}`, {
         credentials: "include",
       });
       if (!res.ok) {
@@ -1021,9 +1026,9 @@ export default function Dashboard() {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="">Don't change status</SelectItem>
-                            {cwStatuses.statuses.map((status: any) => (
+                            {cwStatuses?.statuses?.map((status: any) => (
                               <SelectItem key={status.id} value={status.id.toString()}>
-                                {status.name} ({status.boardName})
+                                {status.name}
                               </SelectItem>
                             ))}
                           </SelectContent>
