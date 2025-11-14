@@ -31,25 +31,25 @@ Write-Host "[1/10] Verifying prerequisites..." -ForegroundColor Yellow
 # Check Node.js
 try {
     $nodeVersion = node --version
-    Write-Host "  ✓ Node.js: $nodeVersion" -ForegroundColor Green
+    Write-Host "  [OK] Node.js: $nodeVersion" -ForegroundColor Green
 } catch {
-    Write-Host "  ✗ Node.js not found! Please install Node.js 18.x or 20.x" -ForegroundColor Red
+    Write-Host "  [ERROR] Node.js not found! Please install Node.js 18.x or 20.x" -ForegroundColor Red
     exit 1
 }
 
 # Check PostgreSQL
 if (-not (Test-Path $PsqlPath)) {
-    Write-Host "  ✗ PostgreSQL not found at $PsqlPath" -ForegroundColor Red
+    Write-Host "  [ERROR] PostgreSQL not found at $PsqlPath" -ForegroundColor Red
     exit 1
 }
-Write-Host "  ✓ PostgreSQL found" -ForegroundColor Green
+Write-Host "  [OK] PostgreSQL found" -ForegroundColor Green
 
 # Check Git
 try {
     $gitVersion = git --version
-    Write-Host "  ✓ Git: $gitVersion" -ForegroundColor Green
+    Write-Host "  [OK] Git: $gitVersion" -ForegroundColor Green
 } catch {
-    Write-Host "  ✗ Git not found! Please install Git" -ForegroundColor Red
+    Write-Host "  [ERROR] Git not found! Please install Git" -ForegroundColor Red
     exit 1
 }
 
@@ -58,27 +58,27 @@ Write-Host "[2/10] Creating deployment directory..." -ForegroundColor Yellow
 
 if (-not (Test-Path $DeployDir)) {
     New-Item -ItemType Directory -Path $DeployDir -Force | Out-Null
-    Write-Host "  ✓ Created $DeployDir" -ForegroundColor Green
+    Write-Host "  [OK] Created $DeployDir" -ForegroundColor Green
 } else {
-    Write-Host "  ✓ Directory exists: $DeployDir" -ForegroundColor Green
+    Write-Host "  [OK] Directory exists: $DeployDir" -ForegroundColor Green
 }
 
 Write-Host ""
 Write-Host "[3/10] Cloning repository..." -ForegroundColor Yellow
 
 if (Test-Path $AppDir) {
-    Write-Host "  ! Application directory exists, pulling latest changes..." -ForegroundColor Yellow
+    Write-Host "  [INFO] Application directory exists, pulling latest changes..." -ForegroundColor Yellow
     Set-Location $AppDir
     git fetch origin
     git checkout $GitBranch
     git pull origin $GitBranch
-    Write-Host "  ✓ Updated to latest code" -ForegroundColor Green
+    Write-Host "  [OK] Updated to latest code" -ForegroundColor Green
 } else {
     Set-Location $DeployDir
     git clone $GitRepo
     Set-Location $AppDir
     git checkout $GitBranch
-    Write-Host "  ✓ Repository cloned" -ForegroundColor Green
+    Write-Host "  [OK] Repository cloned" -ForegroundColor Green
 }
 
 Write-Host ""
@@ -88,19 +88,19 @@ Write-Host "[4/10] Creating database..." -ForegroundColor Yellow
 $dbExists = & $PsqlPath -U $PostgresUser -lqt | Select-String -Pattern "^\s*$DatabaseName\s"
 
 if ($dbExists) {
-    Write-Host "  ! Database '$DatabaseName' already exists" -ForegroundColor Yellow
+    Write-Host "  [INFO] Database '$DatabaseName' already exists" -ForegroundColor Yellow
     $response = Read-Host "  Do you want to DROP and recreate it? (yes/no)"
     if ($response -eq "yes") {
-        Write-Host "  Dropping existing database..." -ForegroundColor Yellow
+        Write-Host "  [INFO] Dropping existing database..." -ForegroundColor Yellow
         & $PsqlPath -U $PostgresUser -c "DROP DATABASE $DatabaseName;"
         & $PsqlPath -U $PostgresUser -c "CREATE DATABASE $DatabaseName;"
-        Write-Host "  ✓ Database recreated" -ForegroundColor Green
+        Write-Host "  [OK] Database recreated" -ForegroundColor Green
     } else {
-        Write-Host "  → Using existing database" -ForegroundColor Yellow
+        Write-Host "  [INFO] Using existing database" -ForegroundColor Yellow
     }
 } else {
     & $PsqlPath -U $PostgresUser -c "CREATE DATABASE $DatabaseName;"
-    Write-Host "  ✓ Database created" -ForegroundColor Green
+    Write-Host "  [OK] Database created" -ForegroundColor Green
 }
 
 Write-Host ""
@@ -109,9 +109,9 @@ Write-Host "[5/10] Applying database schema..." -ForegroundColor Yellow
 $schemaFile = "$AppDir\migrations\PRODUCTION_DEPLOYMENT.sql"
 if (Test-Path $schemaFile) {
     & $PsqlPath -U $PostgresUser -d $DatabaseName -f $schemaFile
-    Write-Host "  ✓ Schema applied" -ForegroundColor Green
+    Write-Host "  [OK] Schema applied" -ForegroundColor Green
 } else {
-    Write-Host "  ✗ Schema file not found: $schemaFile" -ForegroundColor Red
+    Write-Host "  [ERROR] Schema file not found: $schemaFile" -ForegroundColor Red
     exit 1
 }
 
@@ -121,9 +121,9 @@ Write-Host "[6/10] Loading country codes..." -ForegroundColor Yellow
 $countryCodesFile = "$AppDir\migrations\add_country_codes.sql"
 if (Test-Path $countryCodesFile) {
     & $PsqlPath -U $PostgresUser -d $DatabaseName -f $countryCodesFile
-    Write-Host "  ✓ Country codes loaded" -ForegroundColor Green
+    Write-Host "  [OK] Country codes loaded" -ForegroundColor Green
 } else {
-    Write-Host "  ! Country codes file not found (optional)" -ForegroundColor Yellow
+    Write-Host "  [INFO] Country codes file not found (optional)" -ForegroundColor Yellow
 }
 
 Write-Host ""
@@ -131,7 +131,7 @@ Write-Host "[7/10] Installing dependencies..." -ForegroundColor Yellow
 
 Set-Location $AppDir
 npm install --production
-Write-Host "  ✓ Dependencies installed" -ForegroundColor Green
+Write-Host "  [OK] Dependencies installed" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "[8/10] Generating secrets..." -ForegroundColor Yellow
@@ -139,8 +139,8 @@ Write-Host "[8/10] Generating secrets..." -ForegroundColor Yellow
 $SessionSecret = node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
 $EncryptionKey = node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 
-Write-Host "  ✓ SESSION_SECRET generated" -ForegroundColor Green
-Write-Host "  ✓ ENCRYPTION_KEY generated" -ForegroundColor Green
+Write-Host "  [OK] SESSION_SECRET generated" -ForegroundColor Green
+Write-Host "  [OK] ENCRYPTION_KEY generated" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "[9/10] Creating PM2 configuration..." -ForegroundColor Yellow
@@ -173,7 +173,7 @@ module.exports = {
 "@
 
 $ecosystemConfig | Out-File -FilePath "$AppDir\ecosystem.config.js" -Encoding UTF8
-Write-Host "  ✓ PM2 configuration created" -ForegroundColor Green
+Write-Host "  [OK] PM2 configuration created" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "[10/10] Building and starting application..." -ForegroundColor Yellow
@@ -185,16 +185,16 @@ if (-not (Test-Path "$AppDir\logs")) {
 
 # Build application
 npm run build
-Write-Host "  ✓ Application built" -ForegroundColor Green
+Write-Host "  [OK] Application built" -ForegroundColor Green
 
 # Install PM2 globally if not installed
 try {
     pm2 --version | Out-Null
-    Write-Host "  ✓ PM2 already installed" -ForegroundColor Green
+    Write-Host "  [OK] PM2 already installed" -ForegroundColor Green
 } catch {
-    Write-Host "  Installing PM2..." -ForegroundColor Yellow
+    Write-Host "  [INFO] Installing PM2..." -ForegroundColor Yellow
     npm install -g pm2
-    Write-Host "  ✓ PM2 installed" -ForegroundColor Green
+    Write-Host "  [OK] PM2 installed" -ForegroundColor Green
 }
 
 # Stop existing instance if running
@@ -212,7 +212,7 @@ pm2 start ecosystem.config.js
 pm2 save
 
 # Configure startup
-Write-Host "  Configuring PM2 to start on boot..." -ForegroundColor Yellow
+Write-Host "  [INFO] Configuring PM2 to start on boot..." -ForegroundColor Yellow
 pm2 startup
 
 Write-Host ""
