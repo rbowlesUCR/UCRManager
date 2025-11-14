@@ -360,11 +360,22 @@ export async function addTicketNote(
 
     // Use provided memberIdentifier or default from credentials
     const finalMemberIdentifier = memberIdentifier || credentials.defaultMemberIdentifier;
+    console.log(`[ConnectWise] addTicketNote - Member identifier resolution:`, {
+      provided: memberIdentifier || "(not provided)",
+      default: credentials.defaultMemberIdentifier || "(not set in credentials)",
+      final: finalMemberIdentifier || "(none - will not add member to note)"
+    });
+
     if (finalMemberIdentifier) {
       notePayload.member = { identifier: finalMemberIdentifier };
     }
 
-    console.log(`[ConnectWise] Adding note to ticket ${ticketId}`);
+    console.log(`[ConnectWise] Adding note to ticket ${ticketId}`, {
+      hasMember: !!finalMemberIdentifier,
+      memberIdentifier: finalMemberIdentifier || "(none)",
+      isInternal,
+      noteLength: noteText.length
+    });
 
     const response = await fetch(apiUrl, {
       method: 'POST',
@@ -404,6 +415,12 @@ export async function addTimeEntry(
 
     // Use provided memberIdentifier or default from credentials
     const finalMemberIdentifier = memberIdentifier || credentials.defaultMemberIdentifier;
+    console.log(`[ConnectWise] addTimeEntry - Member identifier resolution:`, {
+      provided: memberIdentifier || "(not provided)",
+      default: credentials.defaultMemberIdentifier || "(not set in credentials)",
+      final: finalMemberIdentifier || "(none - will throw error)"
+    });
+
     if (!finalMemberIdentifier) {
       throw new Error('Member identifier is required for time entries');
     }
@@ -421,6 +438,8 @@ export async function addTimeEntry(
       actualHours: hours,
       billableOption: 'Billable',
     };
+
+    console.log(`[ConnectWise] Adding ${hours} hour(s) time entry to ticket ${ticketId} for ${finalMemberIdentifier}`);
 
     if (notes) {
       timeEntry.notes = notes;

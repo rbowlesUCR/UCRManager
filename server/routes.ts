@@ -4777,6 +4777,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { tenantId } = req.params;
       const { ticketId, noteText, memberIdentifier, hours, updateStatus, statusId } = req.body;
 
+      console.log("[ConnectWise] log-change request received:", {
+        tenantId,
+        ticketId,
+        memberIdentifier: memberIdentifier || "(not provided)",
+        hours: hours || "(not provided)",
+        updateStatus,
+        statusId,
+        noteTextLength: noteText?.length || 0
+      });
+
       if (!noteText) {
         return res.status(400).json({ error: "Note text is required" });
       }
@@ -4787,12 +4797,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Get credentials to use defaults if not provided
         const credentials = await getConnectWiseCredentials(tenantId);
+        console.log("[ConnectWise] Retrieved credentials:", {
+          hasCredentials: !!credentials,
+          defaultMemberIdentifier: credentials?.defaultMemberIdentifier || "(not set)",
+          defaultTimeMinutes: credentials?.defaultTimeMinutes || "(not set)"
+        });
+
+        // Determine which member identifier to use
+        const finalMemberIdentifier = memberIdentifier || credentials?.defaultMemberIdentifier;
+        console.log("[ConnectWise] Member identifier resolution:", {
+          provided: memberIdentifier || "(not provided)",
+          default: credentials?.defaultMemberIdentifier || "(not set)",
+          final: finalMemberIdentifier || "(none - will fail)"
+        });
 
         // Add note (memberIdentifier is optional, will use default from credentials if not provided)
         await addTicketNote(tenantId, ticketIdNum, noteText, memberIdentifier, false);
 
         // Add time entry (use default from config if not provided)
         const timeHours = hours || (credentials?.defaultTimeMinutes || 30) / 60;
+        console.log("[ConnectWise] Time entry calculation:", {
+          providedHours: hours || "(not provided)",
+          defaultMinutes: credentials?.defaultTimeMinutes || 30,
+          finalHours: timeHours
+        });
         await addTimeEntry(tenantId, ticketIdNum, memberIdentifier, timeHours, noteText);
 
         // Update status if requested
