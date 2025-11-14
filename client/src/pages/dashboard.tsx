@@ -787,7 +787,7 @@ export default function Dashboard() {
                   type="button"
                   variant={isManualPhoneEntryEnabled ? "outline" : "default"}
                   onClick={() => setShowPhonePickerDialog(true)}
-                  disabled={!selectedUser || !selectedTenant}
+                  disabled={!selectedUser || !selectedTenant || assignVoiceMutation.isPending || isSyncing}
                   className="h-11 min-w-[160px]"
                   title="Select from available numbers"
                 >
