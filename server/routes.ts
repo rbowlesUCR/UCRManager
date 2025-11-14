@@ -4752,45 +4752,61 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Combined action: Add note + time entry + optionally update status
-  app.post("/api/admin/tenant/:tenantId/connectwise/tickets/:ticketId/log-change", requireAdminAuth, async (req, res) => {
+  // Combined action: Add note + time entry + optionally update status (ticket is optional)
+  app.post("/api/admin/tenant/:tenantId/connectwise/log-change", requireAdminAuth, async (req, res) => {
     try {
-      const { tenantId, ticketId } = req.params;
-      const { noteText, memberIdentifier, hours, updateStatus, statusId } = req.body;
+      const { tenantId } = req.params;
+      const { ticketId, noteText, memberIdentifier, hours, updateStatus, statusId } = req.body;
 
       if (!noteText || !memberIdentifier) {
         return res.status(400).json({ error: "Note text and member identifier required" });
       }
 
-      const ticketIdNum = parseInt(ticketId);
+      // Only log to ConnectWise if a ticket ID is provided
+      if (ticketId) {
+        const ticketIdNum = parseInt(ticketId);
 
-      // Add note
-      await addTicketNote(tenantId, ticketIdNum, noteText, memberIdentifier, false);
+        // Add note
+        await addTicketNote(tenantId, ticketIdNum, noteText, memberIdentifier, false);
 
-      // Add time entry (use default from config if not provided)
-      const credentials = await getConnectWiseCredentials(tenantId);
-      const timeHours = hours || (credentials?.defaultTimeMinutes || 15) / 60;
-      await addTimeEntry(tenantId, ticketIdNum, memberIdentifier, timeHours, noteText);
+        // Add time entry (use default from config if not provided)
+        const credentials = await getConnectWiseCredentials(tenantId);
+        const timeHours = hours || (credentials?.defaultTimeMinutes || 15) / 60;
+        await addTimeEntry(tenantId, ticketIdNum, memberIdentifier, timeHours, noteText);
 
-      // Update status if requested
-      if (updateStatus && statusId) {
-        await updateTicketStatus(tenantId, ticketIdNum, parseInt(statusId));
-      } else if (updateStatus && credentials?.autoUpdateStatus && credentials?.defaultStatusId) {
-        await updateTicketStatus(tenantId, ticketIdNum, credentials.defaultStatusId);
-      }
-
-      res.json({
-        success: true,
-        message: "Change logged to ticket successfully",
-        actions: {
-          noteAdded: true,
-          timeAdded: true,
-          statusUpdated: updateStatus || (credentials?.autoUpdateStatus && credentials?.defaultStatusId) ? true : false,
+        // Update status if requested
+        if (updateStatus && statusId) {
+          await updateTicketStatus(tenantId, ticketIdNum, parseInt(statusId));
+        } else if (updateStatus && credentials?.autoUpdateStatus && credentials?.defaultStatusId) {
+          await updateTicketStatus(tenantId, ticketIdNum, credentials.defaultStatusId);
         }
-      });
+
+        res.json({
+          success: true,
+          message: "Change logged to ticket successfully",
+          ticketId: ticketIdNum,
+          actions: {
+            noteAdded: true,
+            timeAdded: true,
+            statusUpdated: updateStatus || (credentials?.autoUpdateStatus && credentials?.defaultStatusId) ? true : false,
+          }
+        });
+      } else {
+        // No ticket provided - change was made but not logged to ConnectWise
+        res.json({
+          success: true,
+          message: "Change completed (no ticket linked)",
+          ticketId: null,
+          actions: {
+            noteAdded: false,
+            timeAdded: false,
+            statusUpdated: false,
+          }
+        });
+      }
     } catch (error: any) {
-      console.error("[ConnectWise API] Error logging change to ticket:", error);
-      res.status(500).json({ error: error.message || "Failed to log change to ticket" });
+      console.error("[ConnectWise API] Error logging change:", error);
+      res.status(500).json({ error: error.message || "Failed to log change" });
     }
   });
 

@@ -15,6 +15,7 @@ import { BulkAssignmentDialog } from "@/components/bulk-assignment-dialog";
 import { ConfigurationProfiles } from "@/components/configuration-profiles";
 import { PowerShellMfaModal } from "@/components/powershell-mfa-modal";
 import { PhoneNumberPickerDialog } from "@/components/phone-number-picker-dialog";
+import { ConnectWiseTicketSearch } from "@/components/connectwise-ticket-search";
 import type { TeamsUser, VoiceRoutingPolicy, CustomerTenant, ConfigurationProfile, FeatureFlag } from "@shared/schema";
 
 interface UserVoiceConfig {
@@ -40,6 +41,8 @@ export default function Dashboard() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [assignedUser, setAssignedUser] = useState<TeamsUser | null>(null); // Track user being assigned
   const [showPhonePickerDialog, setShowPhonePickerDialog] = useState(false);
+  const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null);
+  const [selectedTicket, setSelectedTicket] = useState<any>(null);
 
   // Fetch Teams users when tenant is selected
   const { data: teamsUsers, isLoading: isLoadingUsers } = useQuery({
@@ -128,6 +131,23 @@ export default function Dashboard() {
 
   // Check if manual phone entry is enabled
   const isManualPhoneEntryEnabled = manualPhoneEntryFlag?.isEnabled ?? false;
+
+  // Fetch ConnectWise integration feature flag
+  const { data: connectWiseFlag } = useQuery<FeatureFlag>({
+    queryKey: ["/api/feature-flags/connectwise_integration"],
+    queryFn: async () => {
+      const res = await fetch("/api/feature-flags/connectwise_integration", {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        return { isEnabled: false }; // Default to disabled if fetch fails
+      }
+      return await res.json();
+    },
+  });
+
+  // Check if ConnectWise integration is enabled
+  const isConnectWiseEnabled = connectWiseFlag?.isEnabled ?? false;
 
   // Fetch current voice configuration for selected user via PowerShell
   const { data: userVoiceConfig, isLoading: isLoadingVoiceConfig } = useQuery<UserVoiceConfig>({
@@ -277,6 +297,39 @@ export default function Dashboard() {
         }
       }
 
+      // Log to ConnectWise if ticket is selected and ConnectWise is enabled
+      if (isConnectWiseEnabled && selectedTicketId && userJustAssigned && selectedTenant) {
+        try {
+          const noteText = `Voice configuration updated for ${userJustAssigned.displayName} (${userJustAssigned.userPrincipalName}).\nPhone: ${phoneNumber}\nPolicy: ${selectedPolicy || 'Global'}`;
+
+          console.log("[Dashboard] Logging change to ConnectWise ticket:", selectedTicketId);
+
+          const cwResponse = await apiRequest("POST", `/api/admin/tenant/${selectedTenant.id}/connectwise/log-change`, {
+            ticketId: selectedTicketId,
+            noteText,
+            memberIdentifier: userJustAssigned.userPrincipalName, // Use Teams UPN as member identifier
+          });
+
+          const cwResult = await cwResponse.json();
+
+          if (cwResult.success) {
+            console.log("[Dashboard] Change logged to ConnectWise successfully");
+            toast({
+              title: "Logged to ConnectWise",
+              description: `Change logged to ticket #${selectedTicketId}`,
+            });
+          }
+        } catch (error: any) {
+          console.error("[Dashboard] Error logging to ConnectWise:", error);
+          // Show warning but don't fail the overall operation
+          toast({
+            title: "ConnectWise logging failed",
+            description: "Voice configuration was saved, but logging to ConnectWise failed",
+            variant: "destructive",
+          });
+        }
+      }
+
       // Refetch users to get updated data
       queryClient.invalidateQueries({ queryKey: ["/api/teams/users", selectedTenant?.id] });
 
@@ -303,6 +356,8 @@ export default function Dashboard() {
         setSelectedPolicy("");
         setPhoneValidation(null);
         setAssignedUser(null);
+        setSelectedTicketId(null);
+        setSelectedTicket(null);
       }, 1500);
     },
     onError: (error: Error) => {
@@ -477,6 +532,8 @@ export default function Dashboard() {
     setPhoneNumber("");
     setSelectedPolicy("");
     setPhoneValidation(null);
+    setSelectedTicketId(null);
+    setSelectedTicket(null);
   };
 
   const handleApplyProfile = (profile: ConfigurationProfile) => {
@@ -840,6 +897,30 @@ export default function Dashboard() {
                 </Select>
               )}
             </div>
+
+            {/* ConnectWise Ticket (Optional) */}
+            {isConnectWiseEnabled && selectedTenant && (
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold">
+                  ConnectWise Ticket (Optional)
+                </Label>
+                <ConnectWiseTicketSearch
+                  tenantId={selectedTenant.id}
+                  value={selectedTicketId}
+                  onSelect={(ticketId, ticket) => {
+                    setSelectedTicketId(ticketId);
+                    setSelectedTicket(ticket);
+                  }}
+                  placeholder="Link to a ConnectWise ticket..."
+                  disabled={!selectedUser}
+                />
+                {selectedTicket && (
+                  <p className="text-xs text-muted-foreground">
+                    Changes will be logged to ticket #{selectedTicket.id} with default time entry
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Action Buttons */}
             <div className="flex gap-3 pt-4">
