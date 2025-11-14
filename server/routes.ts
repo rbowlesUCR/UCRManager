@@ -4849,7 +4849,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { tenantId } = req.params;
       const { baseUrl, companyId, publicKey, privateKey, clientId, defaultTimeMinutes, autoUpdateStatus, defaultStatusId } = req.body;
-      const operatorName = (req as any).adminUser?.username || "system";
+
+      // Get user identifier (email for operators, username for local admin)
+      const userIdentifier = (req as any).user?.email || (req as any).user?.username;
+
+      // Validate user authentication
+      if (!userIdentifier) {
+        return res.status(401).json({ error: "User not authenticated" });
+      }
 
       // Validate required fields
       if (!baseUrl || !companyId) {
@@ -4890,7 +4897,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       // Store credentials (will upsert in the database)
-      await storeConnectWiseCredentials(tenantId, credentialData, operatorName);
+      await storeConnectWiseCredentials(tenantId, credentialData, userIdentifier);
 
       console.log(`[ConnectWise] Credentials saved for tenant ${tenantId}`);
 
