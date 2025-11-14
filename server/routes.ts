@@ -44,6 +44,7 @@ import {
   addTicketNote,
   addTimeEntry,
   updateTicketStatus,
+  getTicketStatuses,
   isConnectWiseEnabled,
 } from "./connectwise";
 
