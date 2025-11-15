@@ -729,19 +729,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Update operator user role (admin only)
+  // Update operator user role and/or active status (admin only)
   app.put("/api/admin/operator-users/:id", requireAdminAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const { role, isActive } = req.body;
 
-      if (!role || (role !== "admin" && role !== "user")) {
+      // Validate role if provided
+      if (role !== undefined && role !== "admin" && role !== "user") {
         return res.status(400).json({ error: "Invalid role. Must be 'admin' or 'user'" });
       }
 
-      const updates: any = { role };
+      // Build updates object with only provided fields
+      const updates: any = {};
+      if (role !== undefined) {
+        updates.role = role;
+      }
       if (typeof isActive === "boolean") {
         updates.isActive = isActive;
+      }
+
+      // Ensure at least one field is being updated
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: "No valid fields to update" });
       }
 
       const updatedUser = await storage.updateOperatorUser(id, updates);

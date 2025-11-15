@@ -64,7 +64,7 @@ export default function AdminOperatorUsers() {
 
   const toggleActiveMutation = useMutation({
     mutationFn: async ({ id, isActive }: { id: string; isActive: boolean }) => {
-      return await apiRequest("PUT", `/api/admin/operator-users/${id}`, { role: undefined, isActive });
+      return await apiRequest("PUT", `/api/admin/operator-users/${id}`, { isActive });
     },
     onSuccess: () => {
       toast({
