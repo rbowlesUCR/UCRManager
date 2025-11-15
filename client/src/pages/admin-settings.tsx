@@ -194,7 +194,7 @@ export default function AdminSettings() {
       toast({
         title: data.isEnabled ? "Manual phone entry enabled" : "Manual phone entry disabled",
         description: data.isEnabled
-          ? "Operators can now manually enter phone numbers in Voice Configuration"
+          ? "Operators can now manually enter phone numbers in Teams Voice Manager"
           : "Operators must select phone numbers from the DID picklist",
       });
       queryClient.invalidateQueries({ queryKey: ["/api/feature-flags/allow_manual_phone_entry"] });
@@ -744,7 +744,7 @@ export default function AdminSettings() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Phone className="h-5 w-5" />
-                Voice Configuration Settings
+                Teams Voice Manager Settings
               </CardTitle>
               <CardDescription>
                 Control how operators assign phone numbers to users
@@ -772,7 +772,7 @@ export default function AdminSettings() {
                 <Alert>
                   <AlertCircle className="h-4 w-4" />
                   <AlertDescription>
-                    <strong>Manual entry is disabled.</strong> Operators must select phone numbers from the DID picklist in Voice Configuration. This ensures only valid numbers from your inventory are assigned.
+                    <strong>Manual entry is disabled.</strong> Operators must select phone numbers from the DID picklist in Teams Voice Manager. This ensures only valid numbers from your inventory are assigned.
                   </AlertDescription>
                 </Alert>
               )}

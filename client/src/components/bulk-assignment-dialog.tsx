@@ -286,7 +286,7 @@ export function BulkAssignmentDialog({ open, onOpenChange, selectedTenant }: Bul
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Users className="w-5 h-5" />
-            Bulk Voice Configuration
+            Bulk Teams Voice Manager
           </DialogTitle>
           <DialogDescription>
             Select users and assign individual phone numbers and routing policies

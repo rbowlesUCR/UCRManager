@@ -119,24 +119,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Check if user exists in operator_users table
       let operatorUser = await storage.getOperatorUser(azureUserId);
-      
-      // If user doesn't exist, create them with default "user" role
+
+      // If user doesn't exist, create them with isActive: false (pending admin approval)
       if (!operatorUser) {
-        console.log("Creating new operator user:", email);
+        console.log("Creating new operator user (pending approval):", email);
         operatorUser = await storage.createOperatorUser({
           azureUserId,
           email,
           displayName,
           role: "user",
-          isActive: true,
+          isActive: false, // New users start as inactive, requiring admin approval
         });
-      } else if (!operatorUser.isActive) {
-        // User exists but is inactive
-        console.warn("Inactive user attempted login:", email);
-        return res.status(403).send("Your account has been deactivated. Please contact the administrator.");
       }
 
-      // Create session with role information
+      // Check if user is inactive (pending approval or deactivated)
+      if (!operatorUser.isActive) {
+        console.log("Inactive user attempted login:", email);
+
+        // Create a limited session for inactive users (only to show enrollment page)
+        const limitedSession = {
+          id: azureUserId,
+          email,
+          displayName,
+          tenantId,
+          role: "pending" as "pending",
+          isLocalAdmin: false,
+        };
+
+        const limitedToken = createJWT(limitedSession);
+
+        res.cookie("operatorToken", limitedToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          maxAge: 24 * 60 * 60 * 1000, // 24 hours
+          sameSite: "lax",
+          path: "/",
+        });
+
+        console.log("[AUTH DEBUG] Redirecting inactive user to enrollment page:", email);
+        return res.redirect(303, "/enrollment-pending");
+      }
+
+      // Create session with role information for active users
       const session = {
         id: azureUserId,
         email,
@@ -221,11 +245,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     console.log("[AUTH DEBUG] User found in database. Active:", operatorUser.isActive, "Role:", operatorUser.role);
 
+    // If user is inactive, return a pending status session (allows enrollment page access)
     if (!operatorUser.isActive) {
-      console.log("[AUTH DEBUG] User is inactive");
-      // User has been deactivated - clear cookie
-      res.clearCookie("operatorToken");
-      return res.status(403).json({ error: "Account deactivated" });
+      console.log("[AUTH DEBUG] User is inactive - returning pending session");
+      return res.json({
+        ...session,
+        role: "pending",
+        isActive: false,
+      });
     }
 
     console.log("[AUTH DEBUG] Session validated successfully. Returning session for:", session.email);
@@ -234,6 +261,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({
       ...session,
       role: operatorUser.role, // Use database role, not JWT role
+      isActive: true,
     });
   });
 
@@ -701,19 +729,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Update operator user role (admin only)
+  // Update operator user role and/or active status (admin only)
   app.put("/api/admin/operator-users/:id", requireAdminAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const { role, isActive } = req.body;
 
-      if (!role || (role !== "admin" && role !== "user")) {
+      // Validate role if provided
+      if (role !== undefined && role !== "admin" && role !== "user") {
         return res.status(400).json({ error: "Invalid role. Must be 'admin' or 'user'" });
       }
 
-      const updates: any = { role };
+      // Build updates object with only provided fields
+      const updates: any = {};
+      if (role !== undefined) {
+        updates.role = role;
+      }
       if (typeof isActive === "boolean") {
         updates.isActive = isActive;
+      }
+
+      // Ensure at least one field is being updated
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: "No valid fields to update" });
       }
 
       const updatedUser = await storage.updateOperatorUser(id, updates);

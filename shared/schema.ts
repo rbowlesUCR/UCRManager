@@ -302,8 +302,9 @@ export interface OperatorSession {
   email: string;
   displayName: string;
   tenantId: string;
-  role?: "admin" | "user"; // Role from operator_users table
+  role?: "admin" | "user" | "pending"; // Role from operator_users table, "pending" for inactive users
   isLocalAdmin?: boolean; // True for admin_users table login
+  isActive?: boolean; // User active status from database
 }
 
 // Policy Types - Defines all supported Microsoft Teams policy categories
