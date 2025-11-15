@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Save, Phone, Plus, Edit, Trash2, Download, Upload, BarChart3, Filter, Search, RefreshCw, PhoneOff, RotateCcw, Settings, Eye, EyeOff } from "lucide-react";
+import { Loader2, Save, Phone, Plus, Edit, Trash2, Download, Upload, BarChart3, Filter, Search, RefreshCw, PhoneOff, RotateCcw, Settings, Eye, EyeOff, X } from "lucide-react";
 import { TenantSelector } from "@/components/tenant-selector";
 import { TeamsSyncDialog } from "@/components/teams-sync-dialog";
 import type { CustomerTenant, PhoneNumberInventory, InsertPhoneNumberInventory, NumberStatus, NumberType, OperatorSession, CountryCode } from "@shared/schema";
@@ -43,6 +43,32 @@ export default function NumberManagement() {
   });
 
   const [showColumnSelector, setShowColumnSelector] = useState(false);
+  const [columnOrder, setColumnOrder] = useState<string[]>([
+    'lineUri',
+    'displayName',
+    'userPrincipalName',
+    'status',
+    'numberType',
+    'system',
+    'carrier',
+    'location',
+    'notes',
+    'actions'
+  ]);
+
+  // Column labels for display
+  const columnLabels: Record<string, string> = {
+    lineUri: 'Phone Number',
+    displayName: 'Display Name',
+    userPrincipalName: 'User Principal Name',
+    status: 'Status',
+    numberType: 'Type',
+    system: 'System',
+    carrier: 'Carrier',
+    location: 'Location',
+    notes: 'Notes',
+    actions: 'Actions'
+  };
 
   // Helper to parse and display system badges
   const parseSystemTypes = (systemType: string | null): string[] => {
