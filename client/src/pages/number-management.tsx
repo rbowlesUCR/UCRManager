@@ -1327,103 +1327,10 @@ export default function NumberManagement() {
                               onCheckedChange={() => toggleNumberSelection(number.id)}
                             />
                           </TableCell>
-                          <TableCell className="font-mono text-sm">{normalizePhoneForDisplay(number.lineUri)}</TableCell>
-                          <TableCell>{number.displayName || "-"}</TableCell>
-                          <TableCell className="text-sm">{number.userPrincipalName || "-"}</TableCell>
-                          <TableCell>
-                            <Badge variant={getStatusBadgeVariant(number.status)}>
-                              {number.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{number.numberType}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            {number.externalSystemType ? (
-                              <div className="flex gap-1">
-                                {parseSystemTypes(number.externalSystemType).map((system) => (
-                                  <Badge
-                                    key={system}
-                                    variant={system === 'teams' ? 'default' : 'secondary'}
-                                    className="uppercase"
-                                  >
-                                    {system}
-                                  </Badge>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell>{number.carrier || "-"}</TableCell>
-                          <TableCell>{number.location || "-"}</TableCell>
-                          <TableCell>
-                            <div className="flex gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedNumber(number);
-                                  setIsEditDialogOpen(true);
-                                }}
-                                title="Edit number"
-                              >
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              {number.userPrincipalName && (
-                                <>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => {
-                                      if (confirm(`Remove phone number ${number.lineUri} from ${number.userPrincipalName} in Teams?`)) {
-                                        removeAssignmentMutation.mutate({
-                                          userPrincipalName: number.userPrincipalName!,
-                                          phoneNumber: number.lineUri,
-                                        });
-                                      }
-                                    }}
-                                    disabled={removeAssignmentMutation.isPending}
-                                    title="Remove phone assignment from Teams"
-                                  >
-                                    {removeAssignmentMutation.isPending ? (
-                                      <Loader2 className="w-4 h-4 animate-spin" />
-                                    ) : (
-                                      <PhoneOff className="w-4 h-4" />
-                                    )}
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => {
-                                      if (confirm(`Reset voice routing policy to Global for ${number.userPrincipalName}?`)) {
-                                        resetPolicyMutation.mutate(number.userPrincipalName!);
-                                      }
-                                    }}
-                                    disabled={resetPolicyMutation.isPending}
-                                    title="Reset voice routing policy to Global"
-                                  >
-                                    {resetPolicyMutation.isPending ? (
-                                      <Loader2 className="w-4 h-4 animate-spin" />
-                                    ) : (
-                                      <RotateCcw className="w-4 h-4" />
-                                    )}
-                                  </Button>
-                                </>
-                              )}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedNumber(number);
-                                  setIsDeleteDialogOpen(true);
-                                }}
-                                title="Delete number from inventory"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
+                          {columnOrder.map((colKey) => {
+                            if (visibleColumns[colKey as keyof typeof visibleColumns] === false) return null;
+                            return renderCell(colKey, number);
+                          })}
                         </TableRow>
                       ))}
                     </TableBody>
