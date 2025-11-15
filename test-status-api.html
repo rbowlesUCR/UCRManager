@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test ConnectWise Status API</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        pre { background: #f4f4f4; padding: 10px; border-radius: 4px; }
+        button { padding: 10px 20px; margin: 10px 0; cursor: pointer; }
+        .error { color: red; }
+        .success { color: green; }
+    </style>
+</head>
+<body>
+    <h1>ConnectWise Status API Test</h1>
+
+    <div>
+        <button onclick="testStatusAPI()">Test Status API for Ticket #55104</button>
+    </div>
+
+    <div id="output"></div>
+
+    <script>
+        async function testStatusAPI() {
+            const output = document.getElementById('output');
+            output.innerHTML = '<p>Testing...</p>';
+
+            const tenantId = '83f508e2-0b8b-41da-9dba-8a329305c13e';
+            const ticketId = 55104;
+
+            try {
+                // First, search for the ticket
+                output.innerHTML += '<p>Step 1: Searching for ticket...</p>';
+                const searchRes = await fetch(
+                    `/api/admin/tenant/${tenantId}/connectwise/tickets/search?q=${ticketId}`,
+                    { credentials: 'include' }
+                );
+
+                if (!searchRes.ok) {
+                    throw new Error(`Search failed: ${searchRes.status}`);
+                }
+
+                const searchData = await searchRes.json();
+                output.innerHTML += `<p class="success">✓ Found ${searchData.tickets.length} ticket(s)</p>`;
+                output.innerHTML += `<pre>${JSON.stringify(searchData, null, 2)}</pre>`;
+
+                // Now fetch statuses
+                output.innerHTML += '<p>Step 2: Fetching statuses...</p>';
+                const statusRes = await fetch(
+                    `/api/admin/tenant/${tenantId}/connectwise/tickets/${ticketId}/statuses`,
+                    { credentials: 'include' }
+                );
+
+                if (!statusRes.ok) {
+                    throw new Error(`Status fetch failed: ${statusRes.status}`);
+                }
+
+                const statusData = await statusRes.json();
+                output.innerHTML += `<p class="success">✓ Received status data</p>`;
+                output.innerHTML += `<p><strong>Statuses array exists:</strong> ${!!statusData.statuses}</p>`;
+                output.innerHTML += `<p><strong>Number of statuses:</strong> ${statusData.statuses?.length || 0}</p>`;
+                output.innerHTML += `<pre>${JSON.stringify(statusData, null, 2)}</pre>`;
+
+            } catch (error) {
+                output.innerHTML += `<p class="error">✗ Error: ${error.message}</p>`;
+                console.error(error);
+            }
+        }
+    </script>
+</body>
+</html>

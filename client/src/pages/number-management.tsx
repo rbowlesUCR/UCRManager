@@ -28,6 +28,7 @@ export default function NumberManagement() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [countryFilter, setCountryFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState<string>("");
 
   // Column visibility
   const [visibleColumns, setVisibleColumns] = useState({
@@ -1198,6 +1199,17 @@ export default function NumberManagement() {
                 </div>
               )}
 
+              {/* Search Bar */}
+              <div className="relative mb-3">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search by phone number, name, or UPN..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+
               {/* Filters */}
               <div className="flex gap-2 flex-wrap">
                 <div className="flex items-center gap-2">
@@ -1273,7 +1285,15 @@ export default function NumberManagement() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {phoneNumbers.map((number: PhoneNumberInventory) => (
+                      {phoneNumbers.filter((number: PhoneNumberInventory) => {
+                        if (!searchQuery.trim()) return true;
+                        const query = searchQuery.toLowerCase();
+                        return (
+                          normalizePhoneForDisplay(number.lineUri).toLowerCase().includes(query) ||
+                          number.displayName?.toLowerCase().includes(query) ||
+                          number.userPrincipalName?.toLowerCase().includes(query)
+                        );
+                      }).map((number: PhoneNumberInventory) => (
                         <TableRow key={number.id}>
                           <TableCell>
                             <Checkbox

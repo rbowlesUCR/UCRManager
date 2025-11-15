@@ -351,9 +351,10 @@ export default function Dashboard() {
       // Log to ConnectWise if ticket is selected and ConnectWise is enabled
       if (isConnectWiseEnabled && selectedTicketId && userJustAssigned && selectedTenant) {
         try {
+          const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
           const noteText = `Voice configuration updated for ${userJustAssigned.displayName} (${userJustAssigned.userPrincipalName}).\nPhone: ${phoneNumber}\nPolicy: ${selectedPolicy || 'Global'}`;
 
-          console.log("[Dashboard] Logging change to ConnectWise ticket:", selectedTicketId);
+          console.log(`[Dashboard][${requestId}] START ConnectWise logging - Ticket: ${selectedTicketId}, Time: ${cwTimeMinutes} min, Status: ${cwStatusId || "no change"}`);
 
           const payload: any = {
             ticketId: selectedTicketId,
@@ -372,12 +373,13 @@ export default function Dashboard() {
             payload.statusId = cwStatusId;
           }
 
+          console.log(`[Dashboard][${requestId}] Sending request to backend...`);
           const cwResponse = await apiRequest("POST", `/api/admin/tenant/${selectedTenant.id}/connectwise/log-change`, payload);
 
           const cwResult = await cwResponse.json();
 
           if (cwResult.success) {
-            console.log("[Dashboard] Change logged to ConnectWise successfully");
+            console.log(`[Dashboard][${requestId}] SUCCESS - Change logged to ConnectWise`);
             toast({
               title: "Logged to ConnectWise",
               description: `Change logged to ticket #${selectedTicketId} (${cwTimeMinutes} min)`,
