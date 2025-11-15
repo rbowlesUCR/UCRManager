@@ -28,6 +28,8 @@ CREATE TABLE audit_logs (
     previous_routing_policy TEXT,
     status TEXT DEFAULT 'success' NOT NULL,
     error_message TEXT,
+    before_state JSONB,
+    after_state JSONB,
     timestamp TIMESTAMP DEFAULT NOW() NOT NULL
 );
 
@@ -131,6 +133,47 @@ CREATE TABLE IF NOT EXISTS admin_users (
     created_at TIMESTAMP DEFAULT NOW() NOT NULL
 );
 
+-- =============================================================================
+-- FIX FEATURE_FLAGS TABLE
+-- =============================================================================
+
+DROP TABLE IF EXISTS feature_flags CASCADE;
+
+CREATE TABLE feature_flags (
+    id VARCHAR DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    feature_key TEXT NOT NULL UNIQUE,
+    feature_name TEXT NOT NULL,
+    description TEXT,
+    is_enabled BOOLEAN DEFAULT FALSE NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW() NOT NULL,
+    updated_at TIMESTAMP DEFAULT NOW() NOT NULL
+);
+
+-- Insert default feature flags
+INSERT INTO feature_flags (feature_key, feature_name, description, is_enabled) VALUES
+    ('3cx_integration', '3CX Integration', 'Enable 3CX phone system integration', FALSE),
+    ('3cx_grafana', 'Grafana Dashboards (3CX)', 'Enable Grafana monitoring dashboards for 3CX', FALSE),
+    ('allow_manual_phone_entry', 'Manual Phone Number Entry', 'Allow manual entry of phone numbers instead of CSV only', FALSE),
+    ('connectwise_integration', 'ConnectWise Integration', 'Enable ConnectWise ticketing integration', FALSE);
+
+COMMIT;
+
+-- =============================================================================
+-- INITIALIZE REQUIRED DATA
+-- =============================================================================
+
+BEGIN;
+
+-- Insert placeholder operator config (required for app to function)
+-- Admin should update this with real Azure AD credentials after deployment
+INSERT INTO operator_config (azure_tenant_id, azure_client_id, azure_client_secret, redirect_uri)
+SELECT
+    'placeholder-tenant-id',
+    'placeholder-client-id',
+    'placeholder-secret',
+    'https://localhost/auth/callback'
+WHERE NOT EXISTS (SELECT 1 FROM operator_config LIMIT 1);
+
 COMMIT;
 
 -- Verification queries
@@ -142,3 +185,9 @@ SELECT column_name, data_type FROM information_schema.columns WHERE table_name =
 
 SELECT 'operator_users columns:' as info;
 SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'operator_users' ORDER BY ordinal_position;
+
+SELECT 'feature_flags data:' as info;
+SELECT feature_key, feature_name, is_enabled FROM feature_flags ORDER BY feature_key;
+
+SELECT 'operator_config data:' as info;
+SELECT id, azure_tenant_id, azure_client_id, redirect_uri FROM operator_config;
