@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Layout } from "@/components/layout";
 import OperatorLogin from "@/pages/operator-login";
 import AdminLogin from "@/pages/admin-login";
+import EnrollmentPending from "@/pages/enrollment-pending";
 import Dashboard from "@/pages/dashboard";
 import PolicyManagement from "@/pages/policy-management";
 import NumberManagement from "@/pages/number-management";
@@ -21,7 +22,7 @@ import NotFound from "@/pages/not-found";
 import type { OperatorSession } from "@shared/schema";
 
 function ProtectedRoute({ component: Component }: { component: () => JSX.Element }) {
-  const { data: session, isLoading } = useQuery({
+  const { data: session, isLoading } = useQuery<OperatorSession>({
     queryKey: ["/api/auth/session"],
     retry: false,
   });
@@ -36,6 +37,11 @@ function ProtectedRoute({ component: Component }: { component: () => JSX.Element
 
   if (!session) {
     return <Redirect to="/" />;
+  }
+
+  // Redirect pending users to enrollment page
+  if (session.role === "pending" || !session.isActive) {
+    return <Redirect to="/enrollment-pending" />;
   }
 
   return (
@@ -84,6 +90,7 @@ function Router() {
     <Switch>
       <Route path="/" component={OperatorLogin} />
       <Route path="/admin/login" component={AdminLogin} />
+      <Route path="/enrollment-pending" component={EnrollmentPending} />
       <Route path="/dashboard">
         {() => <ProtectedRoute component={Dashboard} />}
       </Route>
