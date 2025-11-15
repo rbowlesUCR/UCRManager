@@ -193,6 +193,24 @@ export default function Dashboard() {
     },
   });
 
+
+  // Fetch ConnectWise work roles available
+  const { data: cwWorkRoles } = useQuery({
+    queryKey: [`/api/admin/tenant/${selectedTenant?.id}/connectwise/work-roles`],
+    enabled: !!selectedTenant && isConnectWiseEnabled,
+    queryFn: async () => {
+      const res = await fetch(`/api/admin/tenant/${selectedTenant?.id}/connectwise/work-roles`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        return { workRoles: [] };
+      }
+      const data = await res.json();
+      console.log('[Dashboard] ConnectWise work roles received:', data);
+      return data;
+    },
+  });
+
   // Debug log when statuses change
   useEffect(() => {
     if (selectedTicket?.id) {
@@ -1073,6 +1091,7 @@ export default function Dashboard() {
                         </Select>
                       </div>
                     )}
+{/* Work Role Dropdown */}                    {cwWorkRoles && cwWorkRoles.workRoles && cwWorkRoles.workRoles.length > 0 && (                      <div className="space-y-2">                        <Label htmlFor="cw-work-role" className="text-xs">                          Select Work Role                        </Label>                        <Select                          value={cwWorkRoleId?.toString() || "0"}                          onValueChange={(val) => setCwWorkRoleId(val === "0" ? null : parseInt(val))}                        >                          <SelectTrigger className="h-9 text-sm" id="cw-work-role">                            <SelectValue placeholder="Select work role..." />                          </SelectTrigger>                          <SelectContent>                            <SelectItem value="0">Use default work role</SelectItem>                            {cwWorkRoles?.workRoles?.map((role: any) => (                              <SelectItem key={role.id} value={role.id.toString()}>                                {role.name}                              </SelectItem>                            ))}                          </SelectContent>                        </Select>                      </div>                    )}
                   </div>
                 )}
               </div>
