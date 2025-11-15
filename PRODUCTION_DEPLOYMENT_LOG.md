@@ -377,6 +377,8 @@ SELECT COUNT(*) FROM country_codes;
 8. ✅ Let's Encrypt validation failing → Opened port 80 in Azure NSG
 9. ✅ HTTPS not accessible externally → Opened port 443 in Azure NSG with correct source IP
 10. ✅ Self-signed certificate warnings → Replaced with Let's Encrypt certificate
+11. ✅ ConnectWise credentials server_url column mismatch → Renamed to base_url
+12. ✅ ConnectWise credentials encrypted_public_key/encrypted_private_key mismatch → Renamed to public_key/private_key
 
 ## PowerShell Modules Installed
 
