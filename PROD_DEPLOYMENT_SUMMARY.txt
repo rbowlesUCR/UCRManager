@@ -1,0 +1,77 @@
+PRODUCTION DEPLOYMENT - ENROLLMENT PENDING FLOW
+================================================
+
+FOR: Production Claude on ucrmanager01.westus3.cloudapp.azure.com (20.171.8.14)
+FROM: Dev Claude on 20.168.122.70
+DATE: November 15, 2025
+
+QUICK START GUIDE
+=================
+
+1. Navigate to application directory:
+   cd /c/inetpub/wwwroot/UCRManager
+
+2. Pull latest changes:
+   git pull origin feature/connectwise-integration
+
+3. Install dependencies:
+   npm install
+
+4. Build application:
+   npm run build
+
+5. Restart PM2:
+   pm2 restart ucrmanager-prod
+
+6. Verify deployment:
+   pm2 logs ucrmanager-prod --lines 30
+
+EXPECTED DOWNTIME: 30 seconds (PM2 restart only)
+TOTAL TIME: ~10 minutes
+
+WHAT'S BEING DEPLOYED
+=====================
+
+Commits: 317f118, 7494714, 732579e, 821ad28
+
+Feature 1: Enrollment Pending Flow
+- New users created as inactive (require admin approval)
+- New enrollment-pending page with auto-refresh
+- Redirect inactive users to enrollment page
+- No database changes required
+
+Feature 2: User Activation Fix
+- Fixed 400 error when toggling user active/inactive
+- Admins can now activate pending users successfully
+
+VERIFICATION TESTS
+==================
+
+After deployment, run these quick tests:
+
+1. Check server is running:
+   pm2 status
+
+2. Test admin login:
+   curl -k -X POST https://localhost/api/admin/login \
+     -H "Content-Type: application/json" \
+     -d '{"username":"admin","password":"admin123"}'
+
+3. Check enrollment page loads:
+   curl -k https://localhost/enrollment-pending
+
+FULL DOCUMENTATION
+==================
+
+Complete step-by-step instructions in:
+PRODUCTION_DEPLOYMENT_INSTRUCTIONS.md
+
+ROLLBACK IF NEEDED
+==================
+
+git revert 821ad28 732579e 7494714 317f118 --no-edit
+npm run build
+pm2 restart ucrmanager-prod
+
+STATUS: ✅ READY TO DEPLOY
+RISK: LOW (no database changes, existing users unaffected)

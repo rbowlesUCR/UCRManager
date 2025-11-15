@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Save, Phone, Plus, Edit, Trash2, Download, Upload, BarChart3, Filter, Search, RefreshCw, PhoneOff, RotateCcw, Settings, Eye, EyeOff } from "lucide-react";
+import { Loader2, Save, Phone, Plus, Edit, Trash2, Download, Upload, BarChart3, Filter, Search, RefreshCw, PhoneOff, RotateCcw, Settings, Eye, EyeOff, X } from "lucide-react";
 import { TenantSelector } from "@/components/tenant-selector";
 import { TeamsSyncDialog } from "@/components/teams-sync-dialog";
 import type { CustomerTenant, PhoneNumberInventory, InsertPhoneNumberInventory, NumberStatus, NumberType, OperatorSession, CountryCode } from "@shared/schema";
@@ -28,6 +28,7 @@ export default function NumberManagement() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [countryFilter, setCountryFilter] = useState<string>("all");
+  const [searchQuery, setSearchQuery] = useState<string>("");
 
   // Column visibility
   const [visibleColumns, setVisibleColumns] = useState({
@@ -42,6 +43,32 @@ export default function NumberManagement() {
   });
 
   const [showColumnSelector, setShowColumnSelector] = useState(false);
+  const [columnOrder, setColumnOrder] = useState<string[]>([
+    'lineUri',
+    'displayName',
+    'userPrincipalName',
+    'status',
+    'numberType',
+    'system',
+    'carrier',
+    'location',
+    'notes',
+    'actions'
+  ]);
+
+  // Column labels for display
+  const columnLabels: Record<string, string> = {
+    lineUri: 'Phone Number',
+    displayName: 'Display Name',
+    userPrincipalName: 'User Principal Name',
+    status: 'Status',
+    numberType: 'Type',
+    system: 'System',
+    carrier: 'Carrier',
+    location: 'Location',
+    notes: 'Notes',
+    actions: 'Actions'
+  };
 
   // Helper to parse and display system badges
   const parseSystemTypes = (systemType: string | null): string[] => {
@@ -776,6 +803,79 @@ export default function NumberManagement() {
     }
   };
 
+  // Render individual table cells based on column type
+  const renderCell = (colKey: string, number: PhoneNumberInventory) => {
+    switch (colKey) {
+      case 'lineUri':
+        return <TableCell key={colKey} className="font-mono text-sm">{normalizePhoneForDisplay(number.lineUri)}</TableCell>;
+      case 'displayName':
+        return <TableCell key={colKey}>{number.displayName || "-"}</TableCell>;
+      case 'userPrincipalName':
+        return <TableCell key={colKey} className="text-sm">{number.userPrincipalName || "-"}</TableCell>;
+      case 'status':
+        return (
+          <TableCell key={colKey}>
+            <Badge variant={getStatusBadgeVariant(number.status)}>{number.status}</Badge>
+          </TableCell>
+        );
+      case 'numberType':
+        return (
+          <TableCell key={colKey}>
+            <Badge variant="outline">{number.numberType}</Badge>
+          </TableCell>
+        );
+      case 'system':
+        return (
+          <TableCell key={colKey}>
+            {number.externalSystemType ? (
+              <div className="flex gap-1">
+                {parseSystemTypes(number.externalSystemType).map((system) => (
+                  <Badge key={system} variant={system === 'teams' ? 'default' : 'secondary'} className="uppercase">
+                    {system}
+                  </Badge>
+                ))}
+              </div>
+            ) : <span className="text-muted-foreground">-</span>}
+          </TableCell>
+        );
+      case 'carrier':
+        return <TableCell key={colKey}>{number.carrier || "-"}</TableCell>;
+      case 'location':
+        return <TableCell key={colKey}>{number.location || "-"}</TableCell>;
+      case 'notes':
+        return (
+          <TableCell key={colKey} className="max-w-xs truncate text-xs text-muted-foreground">
+            {number.notes || "-"}
+          </TableCell>
+        );
+      case 'actions':
+        return (
+          <TableCell key={colKey}>
+            <div className="flex gap-1">
+              <Button variant="ghost" size="sm" onClick={() => { setSelectedNumber(number); setIsEditDialogOpen(true); }} title="Edit number">
+                <Edit className="w-4 h-4" />
+              </Button>
+              {number.userPrincipalName && (
+                <>
+                  <Button variant="ghost" size="sm" onClick={() => { if (confirm(`Remove phone number ${number.lineUri} from ${number.userPrincipalName} in Teams?`)) { removeAssignmentMutation.mutate({ userPrincipalName: number.userPrincipalName!, phoneNumber: number.lineUri }); } }} disabled={removeAssignmentMutation.isPending} title="Remove phone assignment from Teams">
+                    {removeAssignmentMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <PhoneOff className="w-4 h-4" />}
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => { if (confirm(`Reset voice routing policy to Global for ${number.userPrincipalName}?`)) { resetPolicyMutation.mutate(number.userPrincipalName!); } }} disabled={resetPolicyMutation.isPending} title="Reset voice routing policy to Global">
+                    {resetPolicyMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                  </Button>
+                </>
+              )}
+              <Button variant="ghost" size="sm" onClick={() => { setSelectedNumber(number); setIsDeleteDialogOpen(true); }} title="Delete number from inventory">
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </div>
+          </TableCell>
+        );
+      default:
+        return <TableCell key={colKey}>-</TableCell>;
+    }
+  };
+
   return (
     <div className="space-y-8">
       {/* Page Header */}
@@ -1198,6 +1298,104 @@ export default function NumberManagement() {
                 </div>
               )}
 
+              {/* Search Bar */}
+              <div className="flex gap-2 mb-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by phone number, name, or UPN..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="default"
+                  onClick={() => setShowColumnSelector(!showColumnSelector)}
+                >
+                  <Settings className="w-4 h-4 mr-2" />
+                  Customize Columns
+                </Button>
+              </div>
+
+              {/* Column Customization Panel */}
+              {showColumnSelector && (
+                <Card className="mb-4">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="text-base">Customize Columns</CardTitle>
+                        <CardDescription>Select which columns to display and reorder them</CardDescription>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowColumnSelector(false)}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {columnOrder.map((colKey, index) => (
+                        <div key={colKey} className="flex items-center gap-2 p-2 border rounded hover:bg-muted/50">
+                          <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={() => {
+                                if (index > 0) {
+                                  const newOrder = [...columnOrder];
+                                  [newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
+                                  setColumnOrder(newOrder);
+                                }
+                              }}
+                              disabled={index === 0}
+                            >
+                              ↑
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={() => {
+                                if (index < columnOrder.length - 1) {
+                                  const newOrder = [...columnOrder];
+                                  [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
+                                  setColumnOrder(newOrder);
+                                }
+                              }}
+                              disabled={index === columnOrder.length - 1}
+                            >
+                              ↓
+                            </Button>
+                          </div>
+                          <Checkbox
+                            id={`col-${colKey}`}
+                            checked={visibleColumns[colKey as keyof typeof visibleColumns] !== false}
+                            onCheckedChange={(checked) => {
+                              setVisibleColumns({
+                                ...visibleColumns,
+                                [colKey]: checked
+                              });
+                            }}
+                          />
+                          <label
+                            htmlFor={`col-${colKey}`}
+                            className="flex-1 text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                          >
+                            {columnLabels[colKey] || colKey}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               {/* Filters */}
               <div className="flex gap-2 flex-wrap">
                 <div className="flex items-center gap-2">
@@ -1261,19 +1459,22 @@ export default function NumberManagement() {
                             onCheckedChange={toggleAllNumbers}
                           />
                         </TableHead>
-                        <TableHead>Phone Number</TableHead>
-                        <TableHead>Display Name</TableHead>
-                        <TableHead>UPN</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>System</TableHead>
-                        <TableHead>Carrier</TableHead>
-                        <TableHead>Location</TableHead>
-                        <TableHead>Actions</TableHead>
+                        {columnOrder.map((colKey) => {
+                          if (visibleColumns[colKey as keyof typeof visibleColumns] === false) return null;
+                          return <TableHead key={colKey}>{columnLabels[colKey]}</TableHead>;
+                        })}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {phoneNumbers.map((number: PhoneNumberInventory) => (
+                      {phoneNumbers.filter((number: PhoneNumberInventory) => {
+                        if (!searchQuery.trim()) return true;
+                        const query = searchQuery.toLowerCase();
+                        return (
+                          normalizePhoneForDisplay(number.lineUri).toLowerCase().includes(query) ||
+                          number.displayName?.toLowerCase().includes(query) ||
+                          number.userPrincipalName?.toLowerCase().includes(query)
+                        );
+                      }).map((number: PhoneNumberInventory) => (
                         <TableRow key={number.id}>
                           <TableCell>
                             <Checkbox
@@ -1281,103 +1482,10 @@ export default function NumberManagement() {
                               onCheckedChange={() => toggleNumberSelection(number.id)}
                             />
                           </TableCell>
-                          <TableCell className="font-mono text-sm">{normalizePhoneForDisplay(number.lineUri)}</TableCell>
-                          <TableCell>{number.displayName || "-"}</TableCell>
-                          <TableCell className="text-sm">{number.userPrincipalName || "-"}</TableCell>
-                          <TableCell>
-                            <Badge variant={getStatusBadgeVariant(number.status)}>
-                              {number.status}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{number.numberType}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            {number.externalSystemType ? (
-                              <div className="flex gap-1">
-                                {parseSystemTypes(number.externalSystemType).map((system) => (
-                                  <Badge
-                                    key={system}
-                                    variant={system === 'teams' ? 'default' : 'secondary'}
-                                    className="uppercase"
-                                  >
-                                    {system}
-                                  </Badge>
-                                ))}
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                          <TableCell>{number.carrier || "-"}</TableCell>
-                          <TableCell>{number.location || "-"}</TableCell>
-                          <TableCell>
-                            <div className="flex gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedNumber(number);
-                                  setIsEditDialogOpen(true);
-                                }}
-                                title="Edit number"
-                              >
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              {number.userPrincipalName && (
-                                <>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => {
-                                      if (confirm(`Remove phone number ${number.lineUri} from ${number.userPrincipalName} in Teams?`)) {
-                                        removeAssignmentMutation.mutate({
-                                          userPrincipalName: number.userPrincipalName!,
-                                          phoneNumber: number.lineUri,
-                                        });
-                                      }
-                                    }}
-                                    disabled={removeAssignmentMutation.isPending}
-                                    title="Remove phone assignment from Teams"
-                                  >
-                                    {removeAssignmentMutation.isPending ? (
-                                      <Loader2 className="w-4 h-4 animate-spin" />
-                                    ) : (
-                                      <PhoneOff className="w-4 h-4" />
-                                    )}
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => {
-                                      if (confirm(`Reset voice routing policy to Global for ${number.userPrincipalName}?`)) {
-                                        resetPolicyMutation.mutate(number.userPrincipalName!);
-                                      }
-                                    }}
-                                    disabled={resetPolicyMutation.isPending}
-                                    title="Reset voice routing policy to Global"
-                                  >
-                                    {resetPolicyMutation.isPending ? (
-                                      <Loader2 className="w-4 h-4 animate-spin" />
-                                    ) : (
-                                      <RotateCcw className="w-4 h-4" />
-                                    )}
-                                  </Button>
-                                </>
-                              )}
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedNumber(number);
-                                  setIsDeleteDialogOpen(true);
-                                }}
-                                title="Delete number from inventory"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
+                          {columnOrder.map((colKey) => {
+                            if (visibleColumns[colKey as keyof typeof visibleColumns] === false) return null;
+                            return renderCell(colKey, number);
+                          })}
                         </TableRow>
                       ))}
                     </TableBody>

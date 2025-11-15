@@ -45,6 +45,7 @@ import {
   addTimeEntry,
   updateTicketStatus,
   getTicketStatuses,
+  getWorkRoles,
   isConnectWiseEnabled,
 } from "./connectwise";
 
@@ -64,6 +65,18 @@ async function queryUserState(credentials: PowerShellCertificateCredentials, use
     console.error("Error querying user state for audit:", error);
     return null;
   }
+}
+
+// Helper function to append history to phone number notes
+function appendPhoneNumberHistory(existingNotes: string | null, newEntry: string): string {
+  const timestamp = new Date().toISOString();
+  const entry = `[${timestamp}] ${newEntry}`;
+
+  if (!existingNotes || existingNotes.trim() === '') {
+    return entry;
+  }
+
+  return `${existingNotes}\n${entry}`;
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -1832,12 +1845,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const operatorEmail = req.user?.email || "unknown";
       const localNumber = await storage.getPhoneNumberByLineUri(tenantId, phoneNumber);
       if (localNumber) {
+        const assignmentNote = appendPhoneNumberHistory(
+          localNumber.notes,
+          `Assigned to ${user.displayName} (${user.userPrincipalName}) with policy "${routingPolicy || 'Global'}" by ${operatorEmail}`
+        );
         await storage.updatePhoneNumber(localNumber.id, {
           status: "available",
           displayName: null,
           userPrincipalName: null,
           onlineVoiceRoutingPolicy: null,
           lastModifiedBy: operatorEmail,
+          notes: assignmentNote,
         });
         console.log(`Updated phone number ${phoneNumber} to available in local database`);
       } else {
@@ -2323,12 +2341,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const operatorEmail = req.user?.email || "unknown";
           const localNumber = await storage.getPhoneNumberByLineUri(tenantId, assignment.phoneNumber);
           if (localNumber) {
+            const bulkAssignNote = appendPhoneNumberHistory(
+              localNumber.notes,
+              `Assigned to ${user.displayName} (${user.userPrincipalName}) with policy "${assignment.routingPolicy || 'Global'}" by ${operatorEmail} (bulk)`
+            );
             await storage.updatePhoneNumber(localNumber.id, {
               status: "used",
               displayName: user.displayName,
               userPrincipalName: user.userPrincipalName,
               onlineVoiceRoutingPolicy: assignment.routingPolicy,
               lastModifiedBy: operatorEmail,
+              notes: bulkAssignNote,
             });
             console.log(`[BulkAssignment][${userName}] Updated phone number ${assignment.phoneNumber} to used in local database`);
           } else {
@@ -2699,14 +2722,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const oldPhoneNumber = (beforeState.LineURI || "").replace(/^tel:/i, "");
       if (oldPhoneNumber && oldPhoneNumber !== phoneNumber) {
         console.log(`[Assignment] User had previous number: ${oldPhoneNumber}, releasing it back to pool`);
-        const oldNumber = await storage.getPhoneNumberByLineUri(tenantId, oldPhoneNumber);
+        // Database stores numbers with tel: prefix, so add it back for lookup
+        const oldNumberWithPrefix = oldPhoneNumber.startsWith('tel:') ? oldPhoneNumber : `tel:${oldPhoneNumber}`;
+        const oldNumber = await storage.getPhoneNumberByLineUri(tenantId, oldNumberWithPrefix);
         if (oldNumber) {
+          const releaseNote = appendPhoneNumberHistory(
+            oldNumber.notes,
+            `Released from ${oldNumber.displayName || 'unknown'} (${oldNumber.userPrincipalName || 'unknown'}) by ${req.user?.email || "system"}`
+          );
           await storage.updatePhoneNumber(oldNumber.id, {
             status: "available",
             displayName: null,
             userPrincipalName: null,
             onlineVoiceRoutingPolicy: null,
             lastModifiedBy: req.user?.email || "system",
+            notes: releaseNote,
           });
           console.log(`[Assignment] Released old number ${oldPhoneNumber} back to available pool`);
         } else {
@@ -2722,12 +2752,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const operatorEmail = req.user?.email || "unknown";
       const localNumber = await storage.getPhoneNumberByLineUri(tenantId, phoneNumber);
       if (localNumber) {
+        const assignmentNote = appendPhoneNumberHistory(
+          localNumber.notes,
+          `Assigned to ${user.displayName} (${user.userPrincipalName}) with policy "${routingPolicy || 'Global'}" by ${operatorEmail}`
+        );
         await storage.updatePhoneNumber(localNumber.id, {
           status: "used",
           displayName: user.displayName,
           userPrincipalName: user.userPrincipalName,
           onlineVoiceRoutingPolicy: routingPolicy,
           lastModifiedBy: operatorEmail,
+          notes: assignmentNote,
         });
         console.log(`[Assignment] Updated phone number ${phoneNumber} to used in local database`);
       } else {
@@ -4862,11 +4897,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Combined action: Add note + time entry + optionally update status (ticket is optional)
+  // Get available work roles from ConnectWise
+  app.get("/api/admin/tenant/:tenantId/connectwise/work-roles", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const workRoles = await getWorkRoles(tenantId);
+      console.log(`[ConnectWise API] Returning ${workRoles.length} work roles`);
+      res.json({ workRoles });
+    } catch (error: any) {
+      console.error("[ConnectWise API] Error fetching work roles:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch work roles" });
+    }
+  });
+
+    // Combined action: Add note + time entry + optionally update status (ticket is optional)
   app.post("/api/admin/tenant/:tenantId/connectwise/log-change", requireAdminAuth, async (req, res) => {
     try {
       const { tenantId } = req.params;
-      const { ticketId, noteText, memberIdentifier, hours, updateStatus, statusId } = req.body;
+      const { ticketId, noteText, memberIdentifier, hours, updateStatus, statusId, requestId, workRoleId } = req.body;
 
       console.log("[ConnectWise] log-change request received:", {
         tenantId,
@@ -4912,7 +4960,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
           defaultMinutes: credentials?.defaultTimeMinutes || 30,
           finalHours: timeHours
         });
-        await addTimeEntry(tenantId, ticketIdNum, memberIdentifier, timeHours, noteText);
+        console.log(`[ConnectWise][${requestId || 'NO-ID'}] Calling addTimeEntry with ${timeHours} hours, workRoleId: ${workRoleId || 'default'}...`);
+        await addTimeEntry(tenantId, ticketIdNum, memberIdentifier, timeHours, noteText, undefined, workRoleId);
+        console.log(`[ConnectWise][${requestId || 'NO-ID'}] Time entry added successfully`);
 
         // Update status if requested
         if (updateStatus && statusId) {
