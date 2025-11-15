@@ -1,0 +1,26 @@
+                    )}
+
+                    {/* Work Role Dropdown */}
+                    {cwWorkRoles && cwWorkRoles.workRoles && cwWorkRoles.workRoles.length > 0 && (
+                      <div className="space-y-2">
+                        <Label htmlFor="cw-work-role" className="text-xs">
+                          Select Work Role
+                        </Label>
+                        <Select
+                          value={cwWorkRoleId?.toString() || "0"}
+                          onValueChange={(val) => setCwWorkRoleId(val === "0" ? null : parseInt(val))}
+                        >
+                          <SelectTrigger className="h-9 text-sm" id="cw-work-role">
+                            <SelectValue placeholder="Select work role..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="0">Use default work role</SelectItem>
+                            {cwWorkRoles?.workRoles?.map((role: any) => (
+                              <SelectItem key={role.id} value={role.id.toString()}>
+                                {role.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}

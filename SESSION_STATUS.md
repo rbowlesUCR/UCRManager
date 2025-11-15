@@ -58,6 +58,28 @@
 - **Impact**: Users can personalize their view and access assignment history
 - **File**: client/src/pages/number-management.tsx
 
+### 8. ConnectWise Work Role Selection
+- **Status**: ✅ Complete and Deployed
+- **What**: Dynamic work role selection for ConnectWise time entries
+- **Problem**: Work role was hardcoded to "UCRight Engineer" for all time entries
+- **Solution**:
+  - Added API endpoint to fetch available work roles from ConnectWise
+  - Added dropdown to select work role when logging time
+  - Work role selection sent with time entry to ConnectWise
+  - Falls back to "UCRight Engineer" if no role selected
+- **Backend Changes**:
+  - `server/connectwise.ts`: Added `getWorkRoles()` function to fetch roles from `/time/workRoles` API
+  - `server/connectwise.ts`: Updated `addTimeEntry()` to accept optional `workRoleId` parameter
+  - `server/routes.ts`: Added `/api/admin/tenant/:tenantId/connectwise/work-roles` endpoint
+  - `server/routes.ts`: Updated `/log-change` route to extract and pass `workRoleId`
+- **Frontend Changes**:
+  - `client/src/pages/dashboard.tsx`: Added `cwWorkRoleId` state
+  - `client/src/pages/dashboard.tsx`: Added `useQuery` to fetch work roles
+  - `client/src/pages/dashboard.tsx`: Added "Select Work Role" dropdown below status dropdown
+  - `client/src/pages/dashboard.tsx`: Updated payload to include `workRoleId`
+- **Impact**: Operators can now select appropriate work roles for different tickets, ensuring proper billing rates and work categorization in ConnectWise
+- **Commits**: 0b1c677, 6aa89f0, 8c0350f
+
 ## Files Modified
 
 ### Backend (server/)

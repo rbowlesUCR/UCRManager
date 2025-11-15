@@ -409,7 +409,8 @@ export async function addTimeEntry(
   memberIdentifier: string | undefined,
   hours: number,
   notes?: string,
-  workTypeId?: number
+  workTypeId?: number,
+  workRoleId?: number
 ): Promise<void> {
   try {
     const credentials = await getConnectWiseCredentials(tenantId);
@@ -444,7 +445,9 @@ export async function addTimeEntry(
       member: {
         identifier: finalMemberIdentifier,
       },
-      workRole: {
+      workRole: workRoleId ? {
+        id: workRoleId,
+      } : {
         name: 'UCRight Engineer',
       },
       timeStart: formatCWDate(startTime),
@@ -589,6 +592,48 @@ export async function getTicketStatuses(
   } catch (error: any) {
     console.error('[ConnectWise] Error fetching statuses:', error);
     throw new Error(`Failed to fetch statuses: ${error.message}`);
+  }
+}
+
+/**
+ * Test ConnectWise API connection
+ */
+/**
+ * Get available work roles from ConnectWise
+ */
+export async function getWorkRoles(
+  tenantId: string
+): Promise<Array<{ id: number; name: string }>> {
+  try {
+    const credentials = await getConnectWiseCredentials(tenantId);
+    if (!credentials) {
+      throw new Error('ConnectWise credentials not configured for this tenant');
+    }
+
+    const apiUrl = new URL();
+    console.log();
+
+    const response = await fetch(apiUrl.toString(), {
+      method: 'GET',
+      headers: createHeaders(credentials),
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error();
+    }
+
+    const workRoles = await response.json();
+    console.log();
+
+    return workRoles.map((role: any) => ({
+      id: role.id,
+      name: role.name,
+    }));
+  } catch (error: any) {
+    console.error('[ConnectWise] Error fetching work roles:', error);
+    throw new Error();
   }
 }
 

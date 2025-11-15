@@ -4897,7 +4897,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Combined action: Add note + time entry + optionally update status (ticket is optional)
+  // Get available work roles from ConnectWise
+  app.get("/api/admin/tenant/:tenantId/connectwise/work-roles", requireAdminAuth, async (req, res) => {
+    try {
+      const { tenantId } = req.params;
+      const workRoles = await getWorkRoles(tenantId);
+      console.log(`[ConnectWise API] Returning ${workRoles.length} work roles`);
+      res.json({ workRoles });
+    } catch (error: any) {
+      console.error("[ConnectWise API] Error fetching work roles:", error);
+      res.status(500).json({ error: error.message || "Failed to fetch work roles" });
+    }
+  });
+
+    // Combined action: Add note + time entry + optionally update status (ticket is optional)
   app.post("/api/admin/tenant/:tenantId/connectwise/log-change", requireAdminAuth, async (req, res) => {
     try {
       const { tenantId } = req.params;
