@@ -140,6 +140,30 @@ BEGIN
     END IF;
 END $$;
 
+-- Rename encrypted_public_key to public_key (code expects public_key)
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'connectwise_credentials'
+        AND column_name = 'encrypted_public_key'
+    ) THEN
+        ALTER TABLE connectwise_credentials RENAME COLUMN encrypted_public_key TO public_key;
+    END IF;
+END $$;
+
+-- Rename encrypted_private_key to private_key (code expects private_key)
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'connectwise_credentials'
+        AND column_name = 'encrypted_private_key'
+    ) THEN
+        ALTER TABLE connectwise_credentials RENAME COLUMN encrypted_private_key TO private_key;
+    END IF;
+END $$;
+
 -- =============================================================================
 -- VERIFY ADMIN_USERS TABLE EXISTS
 -- =============================================================================
