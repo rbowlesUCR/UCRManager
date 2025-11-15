@@ -46,6 +46,7 @@ export default function Dashboard() {
   const [cwMemberIdentifier, setCwMemberIdentifier] = useState("");
   const [cwTimeMinutes, setCwTimeMinutes] = useState(30);
   const [cwStatusId, setCwStatusId] = useState<number | null>(null);
+  const [cwWorkRoleId, setCwWorkRoleId] = useState<number | null>(null);
 
   // Fetch Teams users when tenant is selected
   const { data: teamsUsers, isLoading: isLoadingUsers } = useQuery({
@@ -427,6 +428,7 @@ export default function Dashboard() {
         setCwMemberIdentifier("");
         setCwTimeMinutes(30);
         setCwStatusId(null);
+        setCwWorkRoleId(null);
       }, 1500);
     },
     onError: (error: Error) => {

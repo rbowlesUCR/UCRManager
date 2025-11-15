@@ -45,6 +45,7 @@ import {
   addTimeEntry,
   updateTicketStatus,
   getTicketStatuses,
+  getWorkRoles,
   isConnectWiseEnabled,
 } from "./connectwise";
 
@@ -4900,7 +4901,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/admin/tenant/:tenantId/connectwise/log-change", requireAdminAuth, async (req, res) => {
     try {
       const { tenantId } = req.params;
-      const { ticketId, noteText, memberIdentifier, hours, updateStatus, statusId, requestId } = req.body;
+      const { ticketId, noteText, memberIdentifier, hours, updateStatus, statusId, requestId, workRoleId } = req.body;
 
       console.log("[ConnectWise] log-change request received:", {
         tenantId,
@@ -4946,8 +4947,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           defaultMinutes: credentials?.defaultTimeMinutes || 30,
           finalHours: timeHours
         });
-        console.log(`[ConnectWise][${requestId || 'NO-ID'}] Calling addTimeEntry with ${timeHours} hours...`);
-        await addTimeEntry(tenantId, ticketIdNum, memberIdentifier, timeHours, noteText);
+        console.log(`[ConnectWise][${requestId || 'NO-ID'}] Calling addTimeEntry with ${timeHours} hours, workRoleId: ${workRoleId || 'default'}...`);
+        await addTimeEntry(tenantId, ticketIdNum, memberIdentifier, timeHours, noteText, undefined, workRoleId);
         console.log(`[ConnectWise][${requestId || 'NO-ID'}] Time entry added successfully`);
 
         // Update status if requested

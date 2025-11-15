@@ -45,21 +45,18 @@
 - **Format**: `[Dashboard][1731685234567-abc123] START ConnectWise logging...`
 - **Benefit**: Easy to trace a single request through frontend → backend → ConnectWise
 
-## In Progress / Pending 🚧
-
 ### 7. Column Customization for Number Inventory
-- **Status**: 🚧 Partially Complete (50%)
-- **Completed**:
-  - Added state management for visible columns
-  - Added state for column order
-  - Added search UI
-- **Remaining**:
-  - Column customization dialog/panel
-  - Dynamic table headers based on visible columns
-  - Dynamic table cells based on visible columns
-  - Drag-and-drop column reordering
-  - Save column preferences (localStorage)
-- **Next Steps**: Complete the UI and dynamic rendering in next session
+- **Status**: ✅ Complete and Tested
+- **What**: Full column customization for phone number inventory table
+- **Features**:
+  - "Customize Columns" button next to search bar with Settings icon
+  - Collapsible panel with checkboxes to show/hide columns
+  - Up/down arrow buttons to reorder columns
+  - Dynamic table headers and cells based on settings
+  - Notes column available (hidden by default) to view assignment history
+  - All 10 columns customizable: Phone Number, Display Name, UPN, Status, Type, System, Carrier, Location, Notes, Actions
+- **Impact**: Users can personalize their view and access assignment history
+- **File**: client/src/pages/number-management.tsx
 
 ## Files Modified
 
