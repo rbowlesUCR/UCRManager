@@ -164,6 +164,10 @@ BEGIN
     END IF;
 END $$;
 
+-- Add missing columns for ConnectWise configuration
+ALTER TABLE connectwise_credentials ADD COLUMN IF NOT EXISTS auto_update_status BOOLEAN DEFAULT false;
+ALTER TABLE connectwise_credentials ADD COLUMN IF NOT EXISTS default_status_id INTEGER;
+
 -- =============================================================================
 -- VERIFY ADMIN_USERS TABLE EXISTS
 -- =============================================================================
