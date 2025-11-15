@@ -22,7 +22,7 @@ export default function OperatorLogin() {
             <Shield className="w-8 h-8 text-primary" />
           </div>
           <div className="space-y-2">
-            <CardTitle className="text-2xl">Teams Voice Manager</CardTitle>
+            <CardTitle className="text-2xl">UCRManager</CardTitle>
             <CardDescription>
               Sign in with your operator account to manage Teams voice configurations
             </CardDescription>

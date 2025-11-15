@@ -611,7 +611,7 @@ export default function Dashboard() {
       {/* Page Header */}
       <div>
         <h1 className="text-2xl font-semibold" data-testid="text-page-title">
-          Voice Configuration
+          Teams Voice Manager
         </h1>
         <p className="text-muted-foreground mt-2">
           Assign phone numbers and routing policies to Teams users
@@ -656,7 +656,7 @@ export default function Dashboard() {
                   <div className="space-y-1">
                     <CardTitle className="text-lg flex items-center gap-2">
                       <Users className="w-5 h-5" />
-                      User Voice Configuration
+                      User Teams Voice Manager
                     </CardTitle>
                     <CardDescription>
                       Select a Teams voice-enabled user and configure their phone settings
@@ -720,7 +720,7 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {/* Current Voice Configuration */}
+              {/* Current Teams Voice Configuration */}
               {selectedUser && isLoadingVoiceConfig && (
                 <div className="rounded-md border border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-800 p-3">
                   <div className="flex items-center gap-2">

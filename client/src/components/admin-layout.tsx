@@ -78,7 +78,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
                 </svg>
               </div>
               <div>
-                <h1 className="text-lg font-semibold">Teams Voice Manager</h1>
+                <h1 className="text-lg font-semibold">UCRManager</h1>
                 <p className="text-xs text-muted-foreground">Admin Panel</p>
               </div>
             </div>
