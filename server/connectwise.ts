@@ -610,8 +610,8 @@ export async function getWorkRoles(
       throw new Error('ConnectWise credentials not configured for this tenant');
     }
 
-    const apiUrl = new URL();
-    console.log();
+    const apiUrl = new URL(`${credentials.baseUrl}/v4_6_release/apis/3.0/time/workRoles`);
+    console.log(`[ConnectWise] Fetching work roles from ${apiUrl.toString()}`);
 
     const response = await fetch(apiUrl.toString(), {
       method: 'GET',
@@ -621,21 +621,30 @@ export async function getWorkRoles(
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error();
+      throw new Error(`ConnectWise API error: ${response.status} - ${errorText}`);
     }
 
     const workRoles = await response.json();
-    console.log();
+    console.log(`[ConnectWise] Found ${workRoles.length} total work roles`);
 
-    return workRoles.map((role: any) => ({
+    // Filter to only UCRight or Salient work roles
+    const filteredRoles = workRoles.filter((role: any) => {
+      const name = role.name || '';
+      return name.startsWith('UCRight') || name.startsWith('Salient');
+    });
+
+    console.log(`[ConnectWise] Filtered to ${filteredRoles.length} work roles (UCRight/Salient only)`);
+
+    return filteredRoles.map((role: any) => ({
       id: role.id,
       name: role.name,
     }));
   } catch (error: any) {
     console.error('[ConnectWise] Error fetching work roles:', error);
-    throw new Error();
+    throw new Error(`Failed to fetch work roles: ${error.message}`);
   }
 }
+
 
 /**
  * Test ConnectWise API connection
