@@ -429,6 +429,7 @@ export default function Dashboard() {
         setCwTimeMinutes(30);
         setCwStatusId(null);
         setCwWorkRoleId(null);
+        setCwWorkRoleId(null);
       }, 1500);
     },
     onError: (error: Error) => {
