@@ -169,6 +169,14 @@ ALTER TABLE connectwise_credentials ADD COLUMN IF NOT EXISTS auto_update_status 
 ALTER TABLE connectwise_credentials ADD COLUMN IF NOT EXISTS default_status_id INTEGER;
 
 -- =============================================================================
+-- FIX TENANT_3CX_CREDENTIALS TABLE
+-- =============================================================================
+
+-- Add missing metadata columns for 3CX credentials
+ALTER TABLE tenant_3cx_credentials ADD COLUMN IF NOT EXISTS created_by TEXT;
+ALTER TABLE tenant_3cx_credentials ADD COLUMN IF NOT EXISTS updated_by TEXT;
+
+-- =============================================================================
 -- VERIFY ADMIN_USERS TABLE EXISTS
 -- =============================================================================
 
