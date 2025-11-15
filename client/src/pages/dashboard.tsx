@@ -152,6 +152,16 @@ export default function Dashboard() {
   // Check if ConnectWise integration is enabled
   const isConnectWiseEnabled = connectWiseFlag?.isEnabled ?? false;
 
+  // Allowed ConnectWise status names for voice configuration work
+  const ALLOWED_STATUS_NAMES = [
+    'New',
+    'In Progress',
+    'Acknowledged',
+    'Responded',
+    'Close Pending',
+    'Closed'
+  ];
+
   // Fetch ConnectWise statuses available for the selected ticket
   const { data: cwStatuses } = useQuery({
     queryKey: [`/api/admin/tenant/${selectedTenant?.id}/connectwise/tickets/${selectedTicket?.id}/statuses`],
@@ -169,8 +179,16 @@ export default function Dashboard() {
         return { statuses: [] };
       }
       const data = await res.json();
-      console.log('[Dashboard] ConnectWise statuses received:', data);
-      return data;
+      console.log('[Dashboard] ConnectWise statuses received (all):', data);
+
+      // Filter statuses to only include allowed ones
+      const filteredStatuses = data.statuses?.filter((status: any) =>
+        ALLOWED_STATUS_NAMES.includes(status.name)
+      ) || [];
+
+      console.log('[Dashboard] ConnectWise statuses (filtered):', filteredStatuses);
+
+      return { statuses: filteredStatuses };
     },
   });
 
