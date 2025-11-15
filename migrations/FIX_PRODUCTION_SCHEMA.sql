@@ -175,6 +175,8 @@ ALTER TABLE connectwise_credentials ADD COLUMN IF NOT EXISTS default_status_id I
 -- Add missing metadata columns for 3CX credentials
 ALTER TABLE tenant_3cx_credentials ADD COLUMN IF NOT EXISTS created_by TEXT;
 ALTER TABLE tenant_3cx_credentials ADD COLUMN IF NOT EXISTS updated_by TEXT;
+ALTER TABLE tenant_3cx_credentials ADD COLUMN IF NOT EXISTS last_modified_by TEXT;
+ALTER TABLE tenant_3cx_credentials ADD COLUMN IF NOT EXISTS last_modified_at TIMESTAMP DEFAULT NOW();
 
 -- =============================================================================
 -- VERIFY ADMIN_USERS TABLE EXISTS
@@ -208,7 +210,8 @@ INSERT INTO feature_flags (feature_key, feature_name, description, is_enabled) V
     ('3cx_integration', '3CX Integration', 'Enable 3CX phone system integration', FALSE),
     ('3cx_grafana', 'Grafana Dashboards (3CX)', 'Enable Grafana monitoring dashboards for 3CX', FALSE),
     ('allow_manual_phone_entry', 'Manual Phone Number Entry', 'Allow manual entry of phone numbers instead of CSV only', FALSE),
-    ('connectwise_integration', 'ConnectWise Integration', 'Enable ConnectWise ticketing integration', FALSE);
+    ('connectwise_integration', 'ConnectWise Integration', 'Enable ConnectWise ticketing integration', FALSE),
+    ('number_management', 'Phone Number Management', 'Enable phone number inventory and lifecycle management', TRUE);
 
 COMMIT;
 
