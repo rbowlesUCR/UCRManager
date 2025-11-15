@@ -125,6 +125,22 @@ CREATE TABLE tenant_powershell_credentials (
 );
 
 -- =============================================================================
+-- FIX CONNECTWISE_CREDENTIALS TABLE
+-- =============================================================================
+
+-- Rename server_url to base_url (code expects base_url)
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'connectwise_credentials'
+        AND column_name = 'server_url'
+    ) THEN
+        ALTER TABLE connectwise_credentials RENAME COLUMN server_url TO base_url;
+    END IF;
+END $$;
+
+-- =============================================================================
 -- VERIFY ADMIN_USERS TABLE EXISTS
 -- =============================================================================
 
