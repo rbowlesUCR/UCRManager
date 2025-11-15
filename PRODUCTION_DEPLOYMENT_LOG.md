@@ -378,11 +378,12 @@ SELECT COUNT(*) FROM country_codes;
 9. ✅ HTTPS not accessible externally → Opened port 443 in Azure NSG with correct source IP
 10. ✅ Self-signed certificate warnings → Replaced with Let's Encrypt certificate
 
-## Known Limitations
+## PowerShell Modules Installed
 
-1. **Microsoft Teams PowerShell Module**: Not installed on server
-   - Test endpoint returns error (expected)
-   - Will need to be installed when Teams integration is required
+1. **Microsoft Teams PowerShell Module**: ✅ Installed
+   - Version: 7.5.0
+   - Installed via: `Install-Module -Name MicrosoftTeams -Force`
+   - Teams PowerShell integration fully functional
 
 2. **NSG Source IP Configuration**: Currently set to server's public IP
    - Should be updated to specific administrator IP addresses for production security
