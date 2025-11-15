@@ -1299,15 +1299,10 @@ export default function NumberManagement() {
                             onCheckedChange={toggleAllNumbers}
                           />
                         </TableHead>
-                        <TableHead>Phone Number</TableHead>
-                        <TableHead>Display Name</TableHead>
-                        <TableHead>UPN</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>System</TableHead>
-                        <TableHead>Carrier</TableHead>
-                        <TableHead>Location</TableHead>
-                        <TableHead>Actions</TableHead>
+                        {columnOrder.map((colKey) => {
+                          if (visibleColumns[colKey as keyof typeof visibleColumns] === false) return null;
+                          return <TableHead key={colKey}>{columnLabels[colKey]}</TableHead>;
+                        })}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
