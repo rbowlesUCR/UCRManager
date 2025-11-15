@@ -4,7 +4,7 @@ import { join } from 'path';
 export async function getHttpsOptions() {
   try {
     const certDir = 'C:\\inetpub\\wwwroot\\UCRManager\\certificates';
-    const domain = 'ucrmanager.westus3.cloudapp.azure.com';
+    const domain = 'ucrmanager01.westus3.cloudapp.azure.com';
 
     // Read PEM files exported by Win-ACME
     const certPath = join(certDir, `${domain}-crt.pem`);
