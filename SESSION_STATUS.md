@@ -59,26 +59,30 @@
 - **File**: client/src/pages/number-management.tsx
 
 ### 8. ConnectWise Work Role Selection
-- **Status**: ✅ Complete and Deployed
-- **What**: Dynamic work role selection for ConnectWise time entries
+- **Status**: ✅ Complete and Tested
+- **What**: Dynamic work role selection for ConnectWise time entries with filtering
 - **Problem**: Work role was hardcoded to "UCRight Engineer" for all time entries
 - **Solution**:
   - Added API endpoint to fetch available work roles from ConnectWise
+  - Filtered work roles to only show UCRight and Salient roles
   - Added dropdown to select work role when logging time
   - Work role selection sent with time entry to ConnectWise
   - Falls back to "UCRight Engineer" if no role selected
 - **Backend Changes**:
   - `server/connectwise.ts`: Added `getWorkRoles()` function to fetch roles from `/time/workRoles` API
+  - `server/connectwise.ts`: Added filtering to only return roles starting with "UCRight" or "Salient"
   - `server/connectwise.ts`: Updated `addTimeEntry()` to accept optional `workRoleId` parameter
+  - `server/connectwise.ts`: Modified time entry to use work role ID when provided
   - `server/routes.ts`: Added `/api/admin/tenant/:tenantId/connectwise/work-roles` endpoint
   - `server/routes.ts`: Updated `/log-change` route to extract and pass `workRoleId`
 - **Frontend Changes**:
   - `client/src/pages/dashboard.tsx`: Added `cwWorkRoleId` state
-  - `client/src/pages/dashboard.tsx`: Added `useQuery` to fetch work roles
+  - `client/src/pages/dashboard.tsx`: Added `useQuery` to fetch work roles when ConnectWise enabled
   - `client/src/pages/dashboard.tsx`: Added "Select Work Role" dropdown below status dropdown
   - `client/src/pages/dashboard.tsx`: Updated payload to include `workRoleId`
-- **Impact**: Operators can now select appropriate work roles for different tickets, ensuring proper billing rates and work categorization in ConnectWise
-- **Commits**: 0b1c677, 6aa89f0, 8c0350f
+  - `client/src/pages/dashboard.tsx`: Added debug logging for troubleshooting
+- **Impact**: Operators can now select appropriate work roles for different tickets, ensuring proper billing rates and work categorization in ConnectWise. Only relevant roles are shown.
+- **Commits**: 78e1d67, cd53e06
 
 ## Files Modified
 
@@ -88,50 +92,66 @@
   - Updated 4 locations to track history (assign, bulk assign, release, remove)
   - Fixed old number release bug (tel: prefix)
   - Added requestId extraction for enhanced logging
+  - Added `/api/admin/tenant/:tenantId/connectwise/work-roles` endpoint
+  - Updated `/log-change` route to pass `workRoleId` to time entry
+
+- **server/connectwise.ts**
+  - Added `getWorkRoles()` function to fetch and filter work roles
+  - Updated `addTimeEntry()` to accept and use optional `workRoleId` parameter
+  - Added work role filtering (UCRight and Salient only)
 
 ### Frontend (client/src/)
 - **client/src/pages/dashboard.tsx**
   - Added enhanced ConnectWise logging with request IDs
   - Fixed emoji characters causing JSON errors
+  - Added `cwWorkRoleId` state for work role selection
+  - Added work roles query and dropdown UI
+  - Added debug logging for work roles troubleshooting
+  - Reformatted work role dropdown code for readability
 
 - **client/src/pages/number-management.tsx**
   - Added searchQuery state
   - Added search input UI
   - Added client-side search filtering
-  - Added column visibility states (foundation for customization)
+  - Added complete column customization with show/hide and reordering
+  - Added renderCell helper function for dynamic table rendering
 
 ## Git Status
 
 **Branch**: `feature/connectwise-enhancements`
-**Last Commit**: `af39ad1` - "feat: Add ConnectWise enhancements and number management improvements"
-**Pushed**: ✅ Yes, pushed to GitHub
+**Last Commit**: `cd53e06` - "feat: Filter work roles to UCRight and Salient only"
+**Pushed**: ⏳ Not yet pushed to GitHub
 
 ## Testing Status
 
 ### Tested and Working ✅
 1. ConnectWise status filtering - Only shows allowed statuses
 2. ConnectWise time entry creation - Works with notes
-3. Phone number history - Appends to notes on assign/release/remove
-4. Old number release - Properly freed when replaced
-5. Number inventory search - Filters by number/name/UPN
+3. ConnectWise work role selection - Dropdown shows filtered roles (UCRight/Salient)
+4. Phone number history - Appends to notes on assign/release/remove
+5. Old number release - Properly freed when replaced
+6. Number inventory search - Filters by number/name/UPN
+7. Column customization - Full show/hide and reordering functionality
 
-### Not Yet Tested
-1. Column customization UI (not fully implemented)
+## Production Deployment Ready
 
-## Next Session TODO
+All features completed, tested, and working. Ready to push to production.
 
-1. **Complete Column Customization**:
-   - Create column selector panel with checkboxes
-   - Make table headers dynamic (only show checked columns)
-   - Make table cells dynamic (only render checked columns)
-   - Add drag-and-drop for column reordering
-   - Save preferences to localStorage
-   - Add "Reset to Default" button
+### Pre-Deployment Checklist:
+- ✅ All features tested and working
+- ✅ No known bugs or issues
+- ✅ Documentation updated
+- ✅ Code committed to feature branch
+- ⏳ Push to GitHub
+- ⏳ Merge to main
+- ⏳ Deploy to production
 
-2. **Optional Enhancements**:
-   - Add column width adjustment
-   - Add ability to freeze certain columns (checkbox, phone number)
-   - Add export with selected columns only
+### Deployment Steps:
+1. Push feature branch to GitHub: `git push origin feature/connectwise-enhancements`
+2. Create pull request and merge to main
+3. On production server: `git pull origin main`
+4. Build: `npm run build`
+5. Restart: `pm2 restart ucrmanager`
 
 ## Known Issues
 
