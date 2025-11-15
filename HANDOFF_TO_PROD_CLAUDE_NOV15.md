@@ -100,7 +100,7 @@ git branch -a
 ### Step 3: Stop Application
 ```powershell
 # Stop the PM2 process
-pm2 stop ucrmanager
+pm2 stop ucrmanager01
 
 # Verify stopped
 pm2 status
@@ -140,13 +140,13 @@ npm run build
 ### Step 7: Start Application
 ```powershell
 # Start the PM2 process
-pm2 start ucrmanager
+pm2 start ucrmanager01
 
 # Check status
 pm2 status
 
 # Monitor logs for startup
-pm2 logs ucrmanager --lines 50
+pm2 logs ucrmanager01--lines 50
 ```
 
 ### Step 8: Verify Deployment
@@ -209,7 +209,7 @@ npm run build
 **Solution**:
 ```powershell
 # Check logs
-pm2 logs ucrmanager --lines 100
+pm2 logs ucrmanager01--lines 100
 
 # Common issues:
 # - Port 443 already in use: Check IIS, stop conflicting service
@@ -224,7 +224,7 @@ pm2 logs ucrmanager --lines 100
 2. Look for error messages
 3. Check network tab for failed API calls
 4. Verify ConnectWise credentials configured for tenant
-5. Check server logs: `pm2 logs ucrmanager | grep -i "work role"`
+5. Check server logs: `pm2 logs ucrmanager01| grep -i "work role"`
 
 ### Issue: ConnectWise API Errors
 **Symptom**: Errors in logs about ConnectWise API
@@ -243,7 +243,7 @@ If critical issues occur:
 
 ```powershell
 # Stop application
-pm2 stop ucrmanager
+pm2 stop ucrmanager01
 
 # Rollback to backup
 git checkout backup-before-nov-15-deploy
@@ -252,10 +252,10 @@ git checkout backup-before-nov-15-deploy
 npm run build
 
 # Start
-pm2 start ucrmanager
+pm2 start ucrmanager01
 
 # Verify
-pm2 logs ucrmanager --lines 50
+pm2 logs ucrmanager01--lines 50
 ```
 
 ## Environment Variables
@@ -277,7 +277,7 @@ After successful deployment:
 
 1. **Monitor Logs** for first 30 minutes:
    ```powershell
-   pm2 logs ucrmanager --lines 100
+   pm2 logs ucrmanager01--lines 100
    ```
 
 2. **Test Key Features**:
@@ -337,14 +337,14 @@ Deployment is successful when:
 pm2 status
 
 # View logs
-pm2 logs ucrmanager --lines 50
+pm2 logs ucrmanager01--lines 50
 
 # Restart if needed
 pm2 restart ucrmanager
 
 # Stop/Start
-pm2 stop ucrmanager
-pm2 start ucrmanager
+pm2 stop ucrmanager01
+pm2 start ucrmanager01
 
 # Check git version
 git log --oneline -1
@@ -361,10 +361,10 @@ You need to:
 1. ✅ Connect to production server 20.168.122.70
 2. ✅ Navigate to C:\inetpub\wwwroot\UCRManager
 3. ✅ Create backup branch
-4. ✅ Stop PM2 (pm2 stop ucrmanager)
+4. ✅ Stop PM2 (pm2 stop ucrmanager01)
 5. ✅ Pull from main (git pull origin main)
 6. ✅ Build (npm run build)
-7. ✅ Start PM2 (pm2 start ucrmanager)
+7. ✅ Start PM2 (pm2 start ucrmanager01
 8. ✅ Verify startup in logs
 9. ✅ Test work role selection, column customization, and number history
 

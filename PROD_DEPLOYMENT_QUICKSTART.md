@@ -17,7 +17,7 @@ cd C:\inetpub\wwwroot\UCRManager
 git branch backup-before-nov-15-deploy
 
 # 3. Stop app
-pm2 stop ucrmanager
+pm2 stop ucrmanager01
 
 # 4. Pull latest code
 git checkout main
@@ -27,10 +27,10 @@ git pull origin main
 npm run build
 
 # 6. Start app
-pm2 start ucrmanager
+pm2 start ucrmanager01
 
 # 7. Verify
-pm2 logs ucrmanager --lines 50
+pm2 logs ucrmanager01--lines 50
 ```
 
 ## Expected Results
@@ -62,10 +62,10 @@ pm2 logs ucrmanager --lines 50
 
 ```powershell
 # Rollback
-pm2 stop ucrmanager
+pm2 stop ucrmanager01
 git checkout backup-before-nov-15-deploy
 npm run build
-pm2 start ucrmanager
+pm2 start ucrmanager01
 ```
 
 ## What This Deployment Adds

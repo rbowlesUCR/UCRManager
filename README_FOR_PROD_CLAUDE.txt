@@ -43,12 +43,12 @@ On production server 20.168.122.70:
 
 cd C:\inetpub\wwwroot\UCRManager
 git branch backup-before-nov-15-deploy
-pm2 stop ucrmanager
+pm2 stop ucrmanager01
 git checkout main
 git pull origin main
 npm run build
-pm2 start ucrmanager
-pm2 logs ucrmanager --lines 50
+pm2 start ucrmanager01
+pm2 logs ucrmanager01--lines 50
 
 That's it! Then verify by testing the work role dropdown.
 

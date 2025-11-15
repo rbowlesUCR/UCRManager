@@ -45,7 +45,7 @@ This deployment includes ConnectWise enhancements and phone number management im
 cd C:\inetpub\wwwroot\UCRManager
 
 # 2. Stop the application
-pm2 stop ucrmanager
+pm2 stop ucrmanager01
 
 # 3. Backup current version
 git stash
@@ -62,10 +62,10 @@ npm install
 npm run build
 
 # 7. Start application
-pm2 start ucrmanager
+pm2 start ucrmanager01
 
 # 8. Verify startup
-pm2 logs ucrmanager --lines 50
+pm2 logs ucrmanager01--lines 50
 ```
 
 ### Verification Steps:
@@ -99,14 +99,14 @@ If issues occur:
 
 ```powershell
 # Stop application
-pm2 stop ucrmanager
+pm2 stop ucrmanager01
 
 # Rollback to previous version
 git checkout backup-before-nov-15-deploy
 
 # Rebuild and restart
 npm run build
-pm2 start ucrmanager
+pm2 start ucrmanager01
 ```
 
 ## Files Changed
@@ -135,7 +135,7 @@ pm2 start ucrmanager
 ## Support
 
 If issues arise during or after deployment:
-1. Check PM2 logs: `pm2 logs ucrmanager`
+1. Check PM2 logs: `pm2 logs ucrmanager01
 2. Check browser console for frontend errors
 3. Test ConnectWise API connectivity
 4. Verify environment variables are set correctly
