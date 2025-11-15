@@ -379,6 +379,9 @@ SELECT COUNT(*) FROM country_codes;
 10. ✅ Self-signed certificate warnings → Replaced with Let's Encrypt certificate
 11. ✅ ConnectWise credentials server_url column mismatch → Renamed to base_url
 12. ✅ ConnectWise credentials encrypted_public_key/encrypted_private_key mismatch → Renamed to public_key/private_key
+13. ✅ ConnectWise credentials missing auto_update_status and default_status_id columns → Added both columns
+14. ✅ 3CX credentials missing created_by and updated_by columns → Added both columns
+15. ✅ Phone number inventory table schema completely outdated → Applied ADD_PHONE_NUMBER_INVENTORY.sql migration (31 columns)
 
 ## PowerShell Modules Installed
 
