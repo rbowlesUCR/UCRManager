@@ -113,9 +113,11 @@ DROP TABLE IF EXISTS tenant_powershell_credentials CASCADE;
 
 CREATE TABLE tenant_powershell_credentials (
     id VARCHAR DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
-    tenant_id VARCHAR NOT NULL,
-    username TEXT NOT NULL,
-    encrypted_password TEXT NOT NULL,
+    tenant_id VARCHAR NOT NULL REFERENCES customer_tenants(id) ON DELETE CASCADE,
+    app_id TEXT,
+    certificate_thumbprint TEXT,
+    username_deprecated TEXT NOT NULL DEFAULT '',
+    encrypted_password_deprecated TEXT NOT NULL DEFAULT '',
     description TEXT,
     is_active BOOLEAN DEFAULT TRUE NOT NULL,
     created_at TIMESTAMP DEFAULT NOW() NOT NULL,
