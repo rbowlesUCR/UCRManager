@@ -1299,15 +1299,102 @@ export default function NumberManagement() {
               )}
 
               {/* Search Bar */}
-              <div className="relative mb-3">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by phone number, name, or UPN..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
+              <div className="flex gap-2 mb-3">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by phone number, name, or UPN..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="default"
+                  onClick={() => setShowColumnSelector(!showColumnSelector)}
+                >
+                  <Settings className="w-4 h-4 mr-2" />
+                  Customize Columns
+                </Button>
               </div>
+
+              {/* Column Customization Panel */}
+              {showColumnSelector && (
+                <Card className="mb-4">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="text-base">Customize Columns</CardTitle>
+                        <CardDescription>Select which columns to display and reorder them</CardDescription>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowColumnSelector(false)}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {columnOrder.map((colKey, index) => (
+                        <div key={colKey} className="flex items-center gap-2 p-2 border rounded hover:bg-muted/50">
+                          <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={() => {
+                                if (index > 0) {
+                                  const newOrder = [...columnOrder];
+                                  [newOrder[index - 1], newOrder[index]] = [newOrder[index], newOrder[index - 1]];
+                                  setColumnOrder(newOrder);
+                                }
+                              }}
+                              disabled={index === 0}
+                            >
+                              ↑
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={() => {
+                                if (index < columnOrder.length - 1) {
+                                  const newOrder = [...columnOrder];
+                                  [newOrder[index], newOrder[index + 1]] = [newOrder[index + 1], newOrder[index]];
+                                  setColumnOrder(newOrder);
+                                }
+                              }}
+                              disabled={index === columnOrder.length - 1}
+                            >
+                              ↓
+                            </Button>
+                          </div>
+                          <Checkbox
+                            id={`col-${colKey}`}
+                            checked={visibleColumns[colKey as keyof typeof visibleColumns] !== false}
+                            onCheckedChange={(checked) => {
+                              setVisibleColumns({
+                                ...visibleColumns,
+                                [colKey]: checked
+                              });
+                            }}
+                          />
+                          <label
+                            htmlFor={`col-${colKey}`}
+                            className="flex-1 text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                          >
+                            {columnLabels[colKey] || colKey}
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Filters */}
               <div className="flex gap-2 flex-wrap">
